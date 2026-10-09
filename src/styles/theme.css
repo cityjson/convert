@@ -1,0 +1,65 @@
+/*
+ * CityJSON design system → shadcn/ui variables.
+ *
+ * Values come from the CityJSON design system (tokens/colors.css, semantic.css,
+ * typography.css, borders.css): brand inks from the logo, UI greys and accents from
+ * the just-the-docs 0.6.2 palette that cityjson.org uses. Light-only, like cityjson.org.
+ */
+:root {
+  /* --- Raw tokens --------------------------------------------------------- */
+  --cj-house: #6449d6; /* purple house glyph */
+  --cj-block: #f5aa00; /* amber block glyph */
+  --cj-tree: #7ca12b; /* green tree glyph */
+  --cj-ink: #615e5c; /* warm grey braces + wordmark */
+
+  --cj-white: #fff;
+  --cj-grey-dk-000: #959396;
+  --cj-grey-dk-100: #5c5962; /* body text */
+  --cj-grey-dk-300: #27262b; /* headings */
+  --cj-grey-lt-000: #f5f6fa; /* sidebar */
+  --cj-grey-lt-100: #eeebee; /* borders */
+  --cj-grey-lt-300: #e6e1e8;
+  --cj-purple-000: #7253ed; /* links */
+  --cj-purple-100: #5e41d0; /* primary button */
+  --cj-red-300: #dd2e2e; /* warning callout */
+  --cj-feedback: #e9ecf7; /* sidebar hover wash */
+
+  --cj-radius: 4px;
+  --cj-radius-pill: 12px;
+  --cj-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.12), 0 3px 10px rgba(0, 0, 0, 0.08);
+
+  --font-sans-stack:
+    system-ui, -apple-system, blinkmacsystemfont, "Segoe UI", roboto, "Helvetica Neue", arial,
+    sans-serif, "Segoe UI Emoji";
+  --font-mono-stack: "SFMono-Regular", menlo, consolas, monospace;
+
+  /* --- shadcn semantic variables ----------------------------------------- */
+  --radius: var(--cj-radius);
+
+  --background: var(--cj-white);
+  /* Strong UI text (labels, headings). Body copy uses --muted-foreground, which is
+     cityjson.org's body-text grey. */
+  --foreground: var(--cj-grey-dk-300);
+  --card: var(--cj-white);
+  --card-foreground: var(--cj-grey-dk-300);
+  --popover: var(--cj-white);
+  --popover-foreground: var(--cj-grey-dk-300);
+
+  --primary: var(--cj-purple-100);
+  --primary-foreground: var(--cj-white);
+  --secondary: var(--cj-grey-lt-000);
+  --secondary-foreground: var(--cj-grey-dk-300);
+  --muted: var(--cj-grey-lt-000);
+  --muted-foreground: var(--cj-grey-dk-100);
+  --accent: var(--cj-feedback);
+  --accent-foreground: var(--cj-grey-dk-300);
+  --destructive: var(--cj-red-300);
+
+  --border: var(--cj-grey-lt-100);
+  /* One step darker than --border so form controls stay visible on white. */
+  --input: var(--cj-grey-lt-300);
+  --ring: var(--cj-purple-000);
+
+  --link: var(--cj-purple-000);
+  --link-hover: var(--cj-purple-100);
+}

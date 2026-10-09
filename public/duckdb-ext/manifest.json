@@ -1,0 +1,30 @@
+{
+  "duckdb": "v1.5.6",
+  "platform": "wasm_eh",
+  "duckdbWasm": "1.33.1-dev65.0",
+  "extensions": {
+    "cityjson": {
+      "version": "8095cb4",
+      "source": "self-built: duckdb-cityjson develop 8095cb4 (PR #23) with `just wasm wasm_eh`, duckdb + extension-ci-tools submodules at v1.5.6, emsdk 3.1.71. Unsigned.",
+      "sha256": "ca9efec203874aa718aa00ecd41293fd0ea6ad815805469f3d8268c6975b9a98",
+      "footer": [
+        "CPP",
+        "8095cb4",
+        "v1.5.6",
+        "wasm_eh",
+        "4"
+      ]
+    },
+    "parquet": {
+      "source": "https://extensions.duckdb.org/v1.5.6/wasm_eh/parquet.duckdb_extension.wasm",
+      "sha256": "33094a01b3a1dc27c4158f4c1fa13c45c240eea6ba07197a19a1925f002ca473",
+      "footer": [
+        "CPP",
+        "v1.5.6",
+        "v1.5.6",
+        "wasm_eh",
+        "4"
+      ]
+    }
+  }
+}

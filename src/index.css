@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-sans-stack);
+  --font-mono: var(--font-mono-stack);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-pill: var(--cj-radius-pill);
+
+  --shadow-card: var(--cj-shadow-1);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+
+  /* The four inks of the CityJSON mark, for format chips and accents. */
+  --color-house: var(--cj-house);
+  --color-block: var(--cj-block);
+  --color-tree: var(--cj-tree);
+  --color-ink: var(--cj-ink);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-muted-foreground font-sans antialiased;
+    font-size: 0.875rem;
+    line-height: 1.4;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-foreground;
+    line-height: 1.25;
+    font-weight: 500;
+  }
+  a {
+    @apply text-link hover:text-link-hover;
+  }
+}

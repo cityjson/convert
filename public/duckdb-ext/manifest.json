@@ -1,0 +1,30 @@
+{
+  "duckdb": "v1.5.6",
+  "platform": "wasm_eh",
+  "duckdbWasm": "1.33.1-dev65.0",
+  "extensions": {
+    "cityjson": {
+      "version": "a1455e1",
+      "source": "https://community-extensions.duckdb.org/v1.5.6/wasm_eh/cityjson.duckdb_extension.wasm",
+      "sha256": "b55c5be1ea1432059cf3fbee86174dc5548e15342cf89395d09353f33eeb5e84",
+      "footer": [
+        "CPP",
+        "a1455e1",
+        "v1.5.6",
+        "wasm_eh",
+        "4"
+      ]
+    },
+    "parquet": {
+      "source": "https://extensions.duckdb.org/v1.5.6/wasm_eh/parquet.duckdb_extension.wasm",
+      "sha256": "33094a01b3a1dc27c4158f4c1fa13c45c240eea6ba07197a19a1925f002ca473",
+      "footer": [
+        "CPP",
+        "v1.5.6",
+        "v1.5.6",
+        "wasm_eh",
+        "4"
+      ]
+    }
+  }
+}

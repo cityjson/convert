@@ -66,8 +66,11 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
   checks this. Never use a caret range for duckdb-wasm.
 - **Extensions are vendored, never loaded from the community CDN at runtime.** The CDN path
   has no extension version in it, so a new release would change behaviour without a deploy.
-  Today both `cityjson` (`a1455e1`) and `parquet` are the official signed v1.5.6 builds
-  (`allowUnsignedExtensions` stays off). `parquet` is vendored because a custom repository
+  `parquet` is the official signed v1.5.6 build. `cityjson` is **self-built** from
+  duckdb-cityjson `8095cb4` (the wasm I/O fixes, #23) for v1.5.6, because the community build
+  is still `a1455e1`. Self-built means unsigned, so the engine opens with
+  `allowUnsignedExtensions: true`. Once the community repository publishes a fixed v1.5.6
+  build, re-vendor it with `vp run vendor:ext` and turn the flag back off. `parquet` is vendored because a custom repository
   breaks autoloading. The community build for DuckDB v1.5.4 is frozen at an older commit, so
   don't go back to v1.5.4.
 - **Selection semantics.** LoD filtering keeps only the chosen `*_lodX_Y` column groups (the
@@ -80,9 +83,8 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
 - **One PRAGMA per statement.** DuckDB expands every pragma in a batch before running any
   of it. Package creation seeds `building` (`LIMIT 0`) before `cityparquet_init`/`insert_*`.
 - **Known extension bugs in wasm** are in [docs/spike-findings.md](docs/spike-findings.md).
-  Fix them upstream; don't work around them in this repo. `tests/browser/engine.test.ts`
-  marks them `it.fails`; when a fixed build is vendored they turn red, which is the cue to
-  flip them to `it`.
+  Bugs 1–4 are fixed in the vendored build, and `tests/browser/engine.test.ts` guards each
+  one. Fix future extension bugs upstream; don't work around them in this repo.
 - **Free memory.** Drop virtual-FS files after download. A fatal wasm error discards the
   worker (`terminate()`), and the next action starts a fresh one.
 - **`registerFile` transfers the buffer** to the worker: measure or copy it first.

@@ -38,7 +38,10 @@ export async function createBrowserEngine(): Promise<BrowserEngine> {
   const worker = new Worker(ehWorker);
   const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
   await db.instantiate(ehWasm);
-  await db.open({ allowUnsignedExtensions: false });
+  // The vendored cityjson build is self-built from duckdb-cityjson (until the community
+  // repository publishes a fixed one), so it is unsigned. The app only ever LOADs from
+  // its own origin (custom_extension_repository below) and runs no user-written SQL.
+  await db.open({ allowUnsignedExtensions: true });
   const conn = await db.connect();
 
   await conn.query(`SET custom_extension_repository = '${EXTENSION_REPOSITORY}'`);

@@ -9,6 +9,21 @@ Date: 2026-10-09. The spike code was throwaway and is not in this repo.
 Several extension bugs, listed below, block it. Every path works with native DuckDB
 (v1.5.5, extension `a1455e1`).
 
+## Resolution
+
+Bugs 1–4 were fixed in [duckdb-cityjson#23](https://github.com/cityjson/duckdb-cityjson/pull/23),
+merged into `develop` as `8095cb4`. The extension's CI builds for DuckDB v1.5.4 and the
+community v1.5.6 build is still `a1455e1`, so the app vendors a self-built `wasm_eh` binary:
+`8095cb4` built with `just wasm wasm_eh`, with the `duckdb` and `extension-ci-tools`
+submodules at v1.5.6 and emsdk 3.1.71. It is unsigned (`allowUnsignedExtensions: true`).
+
+Verified in the app with the Delft sample: CityJSON 7,576,741 bytes, FlatCityBuf 5,070,912
+bytes and a CityParquet package zip, all from CityJSONSeq; package `.zip` input → CityJSONSeq
+6,744,548 bytes. `tests/browser/engine.test.ts` now asserts every writer and package input.
+
+Still open upstream: bug 5, the `create_tables` doc mismatch, and the OBJ/glTF/mesh-texture
+writers, which still use `std::ofstream`.
+
 ## Follow-up (same day)
 
 - **Pin moved to DuckDB v1.5.6.** The community build of `cityjson` for v1.5.4 is frozen at

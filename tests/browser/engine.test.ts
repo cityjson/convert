@@ -64,21 +64,37 @@ describe("duckdb-wasm with the vendored extensions", () => {
     expect(row!.n).toBe(OBJECTS);
   });
 
-  // Known extension bugs in wasm (docs/spike-findings.md). These are expected to fail
-  // until a fixed cityjson build is vendored; when one starts passing, `it.fails`
-  // turns it red, which is the cue to flip it to `it`.
-  it.fails("writes CityJSONSeq (bug 1: writers bypass DuckDB's file system)", async () => {
+  // Regression tests for the extension's wasm I/O bugs (docs/spike-findings.md),
+  // fixed in duckdb-cityjson#23.
+  it.each([
+    ["cityjson", "out.city.json", "read_cityjson"],
+    ["cityjsonseq", "out.city.jsonl", "read_cityjsonseq"],
+    ["flatcitybuf", "out.fcb", "read_flatcitybuf"],
+  ] as const)("writes %s and reads it back (bug 1)", async (target, output, reader) => {
     const [file] = await convert(engine, {
       info,
-      target: "cityjsonseq",
-      selection: { lods: info.schema.lods, attributes: [] },
-      output: "out.city.jsonl",
+      target,
+      selection: { lods: ["2.2"], attributes: ["status"] },
+      output,
     });
     expect((await engine.readFile(file!)).byteLength).toBeGreaterThan(1000);
+    const [row] = await engine.query(`SELECT count(*) AS n FROM ${reader}('${output}')`);
+    expect(row!.n).toBe(OBJECTS);
   });
 
-  it.fails("reads a package from registered files (bug 4: cityparquet_read needs a directory)", async () => {
+  it("reads a package from registered files and converts it to a file (bug 4)", async () => {
     const pkg = await inspect(engine, { kind: "package", dir: "out_pkg" });
     expect(pkg.tables).toEqual(["building"]);
+    expect(pkg.crs).toEqual({ authority: "EPSG", code: "7415" });
+    await convert(engine, {
+      info: pkg,
+      target: "cityjsonseq",
+      selection: { lods: pkg.schema.lods, attributes: [] },
+      output: "from_pkg.city.jsonl",
+    });
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM read_cityjsonseq('from_pkg.city.jsonl')`,
+    );
+    expect(row!.n).toBe(OBJECTS);
   });
 });

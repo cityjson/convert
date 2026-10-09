@@ -4,12 +4,12 @@
   "duckdbWasm": "1.33.1-dev65.0",
   "extensions": {
     "cityjson": {
-      "version": "a1455e1",
-      "source": "https://community-extensions.duckdb.org/v1.5.6/wasm_eh/cityjson.duckdb_extension.wasm",
-      "sha256": "b55c5be1ea1432059cf3fbee86174dc5548e15342cf89395d09353f33eeb5e84",
+      "version": "8095cb4",
+      "source": "self-built: duckdb-cityjson develop 8095cb4 (PR #23) with `just wasm wasm_eh`, duckdb + extension-ci-tools submodules at v1.5.6, emsdk 3.1.71. Unsigned.",
+      "sha256": "ca9efec203874aa718aa00ecd41293fd0ea6ad815805469f3d8268c6975b9a98",
       "footer": [
         "CPP",
-        "a1455e1",
+        "8095cb4",
         "v1.5.6",
         "wasm_eh",
         "4"

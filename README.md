@@ -6,9 +6,8 @@ of detail and attributes, and download the result. Nothing is uploaded: the conv
 locally in [DuckDB-Wasm](https://duckdb.org/docs/api/wasm/overview) with the
 [`cityjson`](https://github.com/cityjson/duckdb-cityjson) DuckDB extension.
 
-> **Experimental.** In the browser, only conversion _to_ a CityParquet package works today.
-> CityJSON, CityJSONSeq and FlatCityBuf output, and CityParquet package input, wait on fixes
-> in the extension. See [docs/spike-findings.md](docs/spike-findings.md).
+> **Experimental.** The extension is under active development; verify results before
+> relying on them. Everything is held in memory, so very large files may not fit.
 
 ## Development
 

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: voidzero-dev/setup-vp@v1.21.1
+        with:
+          node-version: "24"
+          cache: true
+
+      - name: Format, lint and type check
+        run: vp check
+
+      - name: duckdb-wasm / extension version lockstep
+        run: vp run check:lockstep
+
+      - name: Install Chromium for the browser smoke test
+        run: vp exec playwright install --with-deps chromium
+
+      # Unit tests, integration tests against the native cityjson extension, and the
+      # duckdb-wasm smoke test in headless Chromium.
+      - name: Test
+        run: vp test
+
+      - name: Build
+        run: vp build

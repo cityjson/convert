@@ -311,6 +311,7 @@ The browser smoke test is the one that catches a duckdb-wasm and extension versi
 | Package creation needs a seeded object table                                                                                                                               | Seed `building` with `LIMIT 0` of the source, then `cityparquet_init`, then `insert_*`, each as its own statement             |
 | Package → file CRS                                                                                                                                                         | Verified: take the EPSG id from the footer's PROJJSON (`cityparquet_city_field(city, 'crs')`) and pass it as `crs`            |
 | A new DuckDB release breaks the lockstep                                                                                                                                   | Pin both versions together, check in CI, update deliberately                                                                  |
+| Dropping LoDs on the way into a package leaves `bbox` spanning the removed geometry (no `cityparquet_reconcile`)                                                           | Known, not wrong: containment holds, the box is just wider than a fresh read. Revisit if consumers rely on tight boxes        |
 
 ## 9. Build order
 

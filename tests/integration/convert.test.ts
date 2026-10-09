@@ -73,6 +73,28 @@ describe("file → file", () => {
     expect(meta!.code).toBe("7415");
   });
 
+  it("CityJSON as a source: inspect and convert to CityJSONSeq", async () => {
+    // subset.city.json was written by the previous case.
+    const cj = await inspect(engine, {
+      kind: "file",
+      format: "cityjson",
+      path: out("subset.city.json"),
+    });
+    expect(cj.schema.lods).toEqual(["2.2"]);
+    expect(cj.schema.attributes.map((a) => a.name)).toEqual(["status"]);
+    expect(cj.crs).toEqual({ authority: "EPSG", code: "7415" });
+
+    await convert(engine, {
+      info: cj,
+      target: "cityjsonseq",
+      selection: { lods: ["2.2"], attributes: ["status"] },
+      output: out("from-cj.city.jsonl"),
+    });
+    expect(
+      await count(`SELECT count(*) FROM read_cityjsonseq('${out("from-cj.city.jsonl")}')`),
+    ).toBe(OBJECTS);
+  });
+
   it("CityJSONSeq → FlatCityBuf → CityJSONSeq round-trips every object", async () => {
     await convert(engine, {
       info: seq,

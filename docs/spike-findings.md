@@ -9,22 +9,34 @@ Date: 2026-10-09. The spike code was throwaway and is not in this repo.
 Several extension bugs, listed below, block it. Every path works with native DuckDB
 (v1.5.5, extension `a1455e1`).
 
+## Follow-up (same day)
+
+- **Pin moved to DuckDB v1.5.6.** The community build of `cityjson` for v1.5.4 is frozen at
+  `d511bdb` (natively too), but the v1.5.5 and v1.5.6 builds are `a1455e1`, both native and
+  signed `wasm_eh`. The app now pins `@duckdb/duckdb-wasm@1.33.1-dev65.0` (DuckDB v1.5.6) and
+  vendors the official signed binaries, so `allowUnsignedExtensions` stays off.
+- **`cityparquet_write` works in wasm.** It writes through DuckDB's file system, so
+  file → CityParquet package conversion works in the browser today. The browser smoke test
+  (`tests/browser/engine.test.ts`) covers it and marks bugs 1 and 4 as `it.fails`.
+- **The app fetches URLs itself** and registers the bytes, so bug 2 doesn't affect it. That
+  also gives a clear CORS error message.
+
 ## Results
 
 Extension build: the `wasm_eh` CI artifact of `duckdb-cityjson` v0.4.0 (`a1455e1`).
 
-| Case | Result |
-| ---- | ------ |
-| `LOAD cityjson` from a same-origin `custom_extension_repository` | ✅ 60 ms (needs `allowUnsignedExtensions: true`, because CI artifacts are unsigned) |
-| `DESCRIBE` / `cityjsonseq_metadata` on a remote `.city.jsonl` | ✅ |
-| `read_cityjson` on a remote `.city.json` | ❌ bug 2 |
-| `read_cityjsonseq` / `read_cityjson` / `read_flatcitybuf` on `registerFileBuffer` input | ✅ 2231 rows each |
-| `read_flatcitybuf` remote with bbox (HTTP range) | ✅ 32 ms |
-| `read_cityjsonseq` on `registerFileHandle` (`BROWSER_FILEREADER`) input | ❌ hangs, bug 3 |
-| `COPY … TO (FORMAT cityjson \| cityjsonseq \| flatcitybuf)` | ❌ 1-byte output, bug 1 |
-| `cityparquet_write` | ❌ `parquet` autoload fails (a setup issue, see below), then bug 1-class risk |
-| `cityparquet_read` on registered files | ❌ bug 4 |
-| Plain DuckDB `COPY … TO 'x.csv'` and `read_text` on a file handle | ✅, so these are extension bugs, not duckdb-wasm bugs |
+| Case                                                                                    | Result                                                                              |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `LOAD cityjson` from a same-origin `custom_extension_repository`                        | ✅ 60 ms (needs `allowUnsignedExtensions: true`, because CI artifacts are unsigned) |
+| `DESCRIBE` / `cityjsonseq_metadata` on a remote `.city.jsonl`                           | ✅                                                                                  |
+| `read_cityjson` on a remote `.city.json`                                                | ❌ bug 2                                                                            |
+| `read_cityjsonseq` / `read_cityjson` / `read_flatcitybuf` on `registerFileBuffer` input | ✅ 2231 rows each                                                                   |
+| `read_flatcitybuf` remote with bbox (HTTP range)                                        | ✅ 32 ms                                                                            |
+| `read_cityjsonseq` on `registerFileHandle` (`BROWSER_FILEREADER`) input                 | ❌ hangs, bug 3                                                                     |
+| `COPY … TO (FORMAT cityjson \| cityjsonseq \| flatcitybuf)`                             | ❌ 1-byte output, bug 1                                                             |
+| `cityparquet_write`                                                                     | ❌ `parquet` autoload fails (a setup issue, see below), then bug 1-class risk       |
+| `cityparquet_read` on registered files                                                  | ❌ bug 4                                                                            |
+| Plain DuckDB `COPY … TO 'x.csv'` and `read_text` on a file handle                       | ✅, so these are extension bugs, not duckdb-wasm bugs                               |
 
 ### Setup findings (our side)
 

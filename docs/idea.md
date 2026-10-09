@@ -6,10 +6,10 @@
 
 A tool that converts any 3D city model format into another.
 
-| Phase | Formats |
-| ----- | ------- |
-| v1 | CityJSON (`.city.json`), CityJSONSeq (`.city.jsonl`), FlatCityBuf (`.fcb`), CityParquet package (directory; downloaded as `.zip`) |
-| later | CityGML 2.0 / 3.0, OBJ, glTF |
+| Phase | Formats                                                                                                                           |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| v1    | CityJSON (`.city.json`), CityJSONSeq (`.city.jsonl`), FlatCityBuf (`.fcb`), CityParquet package (directory; downloaded as `.zip`) |
+| later | CityGML 2.0 / 3.0, OBJ, glTF                                                                                                      |
 
 The web app comes first; a CLI comes later.
 
@@ -64,7 +64,7 @@ flowchart TB
     end
 
     subgraph runtime["Runtime (browser)"]
-        WASM["@duckdb/duckdb-wasm<br/>1.33.1-dev57.0 (DuckDB v1.5.4)"]
+        WASM["@duckdb/duckdb-wasm<br/>1.33.1-dev65.0 (DuckDB v1.5.6)"]
         EXT["cityjson extension .wasm<br/>(vendored, pinned)"]
     end
 
@@ -81,16 +81,17 @@ flowchart TB
 Arrows point in one direction only, and lint enforces it: `core` imports nothing from `engine`,
 `features` or React. That boundary is what lets a future CLI reuse `core` unchanged.
 
-| Unit | Responsibility | Depends on |
-| ---- | -------------- | ---------- |
-| `core/formats` | Registry: id, kind (`file` \| `package`), file extensions, reader, writer, supported options | — |
-| `core/detect` | File name / first bytes → format id | `formats` |
-| `core/inspect` | Turn `DESCRIBE` and `*_metadata()` rows into `{ lods, attributes, crs, version }` | `formats` |
-| `core/sql` | `ConversionPlan` → ordered list of SQL statements | `formats` |
-| `core/engine` | `Engine` interface: `registerInput(s)`, `query`, `exec`, `readOutputs`, `reset` | — |
-| `engine/` | duckdb-wasm implementation of `Engine` (worker, extension loading, virtual FS) | `core`, duckdb-wasm |
-| `features/convert` | The single UI flow and its state | `core`, `engine`, `components/ui` |
-| `components/ui` | shadcn components, themed with CityJSON tokens | — |
+| Unit               | Responsibility                                                                               | Depends on                        |
+| ------------------ | -------------------------------------------------------------------------------------------- | --------------------------------- |
+| `core/formats`     | Registry: id, kind (`file` \| `package`), file extensions, reader, writer, supported options | —                                 |
+| `core/detect`      | File name / first bytes → format id                                                          | `formats`                         |
+| `core/inspect`     | Turn `DESCRIBE` and `*_metadata()` rows into `{ lods, attributes, crs, version }`            | `formats`                         |
+| `core/sql`         | `ConversionPlan` → ordered list of SQL statements                                            | `formats`                         |
+| `core/engine`      | `Engine` interface: `query`, `exec` (SQL only)                                               | —                                 |
+| `core/convert`     | Orchestrator: `inspect(engine, source)`, `convert(engine, request)`                          | everything in `core`              |
+| `engine/`          | duckdb-wasm `Engine`, plus browser I/O: `registerFile`, `readFile`, `dropFiles`, `terminate` | `core`, duckdb-wasm               |
+| `features/convert` | The single UI flow and its state                                                             | `core`, `engine`, `components/ui` |
+| `components/ui`    | shadcn components, themed with CityJSON tokens                                               | —                                 |
 
 ### 3.2 Conversion data flow
 
@@ -104,7 +105,7 @@ sequenceDiagram
 
     U->>UI: drop file / paste URL
     UI->>C: detect(name, firstBytes)
-    UI->>E: registerInput(File | URL)
+    UI->>E: registerFile(bytes of File / fetched URL)
     UI->>C: buildInspectSql(input)
     UI->>E: query(DESCRIBE …, *_metadata(…))
     E->>X: read_<format>(src)
@@ -145,12 +146,12 @@ flowchart LR
     S --> T --> P2
 ```
 
-| Source → target | SQL |
-| --------------- | --- |
-| file → file | `COPY (SELECT … FROM read_x(src, lod => …)) TO out (FORMAT y, metadata_from src)` |
-| file → package | `CREATE SCHEMA out` · `PRAGMA insert_x('out', src, create_tables = true, lod = …)` · drop unselected attribute columns · `SELECT * FROM cityparquet_write('out', '/out/', source_format => …)` |
-| package → file | `PRAGMA cityparquet_read('/in/', 'src')` · `COPY (SELECT … FROM src.building UNION ALL BY NAME …) TO out (FORMAT y, crs …)` |
-| package → package | `cityparquet_read` · keep selected columns · `cityparquet_write` |
+| Source → target   | SQL                                                                                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| file → file       | `COPY (SELECT … FROM read_x(src, lod => …)) TO out (FORMAT y, metadata_from src)`                                                                                                              |
+| file → package    | `CREATE SCHEMA out` · `PRAGMA insert_x('out', src, create_tables = true, lod = …)` · drop unselected attribute columns · `SELECT * FROM cityparquet_write('out', '/out/', source_format => …)` |
+| package → file    | `PRAGMA cityparquet_read('/in/', 'src')` · `COPY (SELECT … FROM src.building UNION ALL BY NAME …) TO out (FORMAT y, crs …)`                                                                    |
+| package → package | `cityparquet_read` · keep selected columns · `cityparquet_write`                                                                                                                               |
 
 A package output is a directory (`building.parquet`, …, `metadata.json`), so the engine reads
 every file under `/out/` and the UI zips them into one download.
@@ -182,13 +183,13 @@ Selection rules:
 
 ## 4. Technology
 
-| Concern | Choice |
-| ------- | ------ |
-| UI | React + TypeScript, shadcn/ui (Tailwind) |
-| Toolchain | Vite+ (`vp dev` · `vp build` · `vp test` · `vp check` = lint + fmt + types) |
-| Engine | `@duckdb/duckdb-wasm` **pinned exactly** to `1.33.1-dev57.0` (DuckDB v1.5.4), eh bundle, served from our own build |
-| Extensions | `cityjson` (and later `three_d`) plus `parquet` `wasm_eh` builds, **vendored** under `public/duckdb-ext/v1.5.4/wasm_eh/` and loaded through `custom_extension_repository`. `cityjson` comes from the extension's own CI/release, not the community CDN (whose build is stale, see [spike-findings](spike-findings.md)), so `allowUnsignedExtensions: true` is needed. |
-| Hosting | GitHub Pages, `base: '/convert/'` |
+| Concern    | Choice                                                                                                                                                                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI         | React + TypeScript, shadcn/ui (Tailwind)                                                                                                                                                                                                                                                                                                                      |
+| Toolchain  | Vite+ (`vp dev` · `vp build` · `vp test` · `vp check` = lint + fmt + types)                                                                                                                                                                                                                                                                                   |
+| Engine     | `@duckdb/duckdb-wasm` **pinned exactly** to `1.33.1-dev65.0` (DuckDB v1.5.6), eh bundle, served from our own build, loaded lazily on first use                                                                                                                                                                                                                |
+| Extensions | `cityjson` (`a1455e1`) and `parquet` `wasm_eh` builds for DuckDB v1.5.6, **vendored** from the official signed repositories under `public/duckdb-ext/v1.5.6/wasm_eh/` and loaded through `custom_extension_repository`. The community build for v1.5.4 is frozen at an older commit, which is why the pin is v1.5.6 (see [spike-findings](spike-findings.md)) |
+| Hosting    | GitHub Pages, `base: '/convert/'`                                                                                                                                                                                                                                                                                                                             |
 
 **Version lockstep.** duckdb-wasm rejects any extension whose DuckDB version footer does not
 match its own. The duckdb-wasm npm pin and the vendored extension directory must always move
@@ -199,20 +200,20 @@ together, and CI checks this.
 The colors come from the CityJSON design system. They map onto shadcn's CSS variables, so
 every component picks them up automatically.
 
-| shadcn variable | CityJSON token | Value |
-| --------------- | -------------- | ----- |
-| `--primary` | `--purple-100` (btn-primary) | `#5e41d0` |
-| link / ring | `--purple-000` | `#7253ed` |
-| `--foreground` | `--grey-dk-100` (body text) | `#5c5962` |
-| headings | `--grey-dk-300` | `#27262b` |
-| `--background` | `--white` | `#ffffff` |
-| `--muted` / sidebar | `--grey-lt-000` | `#f5f6fa` |
-| `--border` / `--input` | `--grey-lt-100` | `#eeebee` |
-| `--destructive` | `--red-300` | `#dd2e2e` |
-| brand accents (format chips) | house / block / tree | `#6449d6` / `#f5aa00` / `#7ca12b` |
-| `--radius` | `--border-radius` | `4px` |
-| shadow | `--shadow-1` | `0 1px 2px rgba(0,0,0,.12), 0 3px 10px rgba(0,0,0,.08)` |
-| font | `--font-sans` / `--font-mono` | system UI stack, no webfont |
+| shadcn variable              | CityJSON token                | Value                                                   |
+| ---------------------------- | ----------------------------- | ------------------------------------------------------- |
+| `--primary`                  | `--purple-100` (btn-primary)  | `#5e41d0`                                               |
+| link / ring                  | `--purple-000`                | `#7253ed`                                               |
+| `--foreground`               | `--grey-dk-100` (body text)   | `#5c5962`                                               |
+| headings                     | `--grey-dk-300`               | `#27262b`                                               |
+| `--background`               | `--white`                     | `#ffffff`                                               |
+| `--muted` / sidebar          | `--grey-lt-000`               | `#f5f6fa`                                               |
+| `--border` / `--input`       | `--grey-lt-100`               | `#eeebee`                                               |
+| `--destructive`              | `--red-300`                   | `#dd2e2e`                                               |
+| brand accents (format chips) | house / block / tree          | `#6449d6` / `#f5aa00` / `#7ca12b`                       |
+| `--radius`                   | `--border-radius`             | `4px`                                                   |
+| shadow                       | `--shadow-1`                  | `0 1px 2px rgba(0,0,0,.12), 0 3px 10px rgba(0,0,0,.08)` |
+| font                         | `--font-sans` / `--font-mono` | system UI stack, no webfont                             |
 
 The theme is light-only, matching cityjson.org.
 
@@ -221,15 +222,22 @@ The theme is light-only, matching cityjson.org.
 ```
 /
 ├─ src/
-│  ├─ core/               pure logic + Engine interface   (unit-tested)
-│  ├─ engine/             duckdb-wasm implementation
-│  ├─ features/convert/   the one UI flow
+│  ├─ core/               pure logic, Engine interface, orchestrator   (unit-tested)
+│  ├─ engine/             duckdb-wasm implementation + browser file I/O
+│  ├─ features/convert/   the one UI flow (Source → Options → Convert)
 │  ├─ components/ui/      shadcn components
+│  ├─ lib/utils.ts        shadcn `cn` helper
+│  ├─ assets/             CityJSON logo
 │  ├─ styles/theme.css    CityJSON tokens → shadcn variables
-│  └─ main.tsx
-├─ public/duckdb-ext/v1.5.4/wasm_eh/   vendored extension binaries
-├─ scripts/               vendor-extensions, version-lockstep check
-├─ docs/                  this file + architecture notes
+│  └─ main.tsx, App.tsx
+├─ public/duckdb-ext/     manifest.json + v1.5.6/wasm_eh/ vendored extension binaries
+├─ scripts/               vendor-extensions, check-lockstep
+├─ tests/
+│  ├─ fixtures/           20-feature 3DBAG Delft subset
+│  ├─ integration/        core against native DuckDB + cityjson
+│  ├─ browser/            duckdb-wasm smoke test (headless Chromium)
+│  └─ support/            native Engine for tests
+├─ docs/                  this file + spike findings
 ├─ .github/workflows/     ci.yml, deploy.yml
 ├─ CLAUDE.md
 └─ AGENTS.md -> CLAUDE.md
@@ -244,10 +252,10 @@ exists.
 
 Two long-lived branches:
 
-| Branch | Role | Pushing |
-| ------ | ---- | ------- |
-| `develop` | Integration branch for day-to-day work | Push freely |
-| `main` | Release branch; every commit is deployed | Only by merging `develop` into `main` |
+| Branch    | Role                                     | Pushing                               |
+| --------- | ---------------------------------------- | ------------------------------------- |
+| `develop` | Integration branch for day-to-day work   | Push freely                           |
+| `main`    | Release branch; every commit is deployed | Only by merging `develop` into `main` |
 
 ```mermaid
 gitGraph
@@ -282,27 +290,27 @@ private, so that needs either a public repo or a paid org plan, which is still t
 
 ## 7. Testing
 
-| Level | What | How |
-| ----- | ---- | --- |
-| Unit | `core`: detect, inspect parsing, SQL builder | Vitest (`vp test`) |
-| Integration | Generated SQL against the real `cityjson` extension | Vitest + `@duckdb/node-api` (native DuckDB, no wasm workarounds) |
-| Browser smoke | Real duckdb-wasm + vendored extension converts a small sample | Vitest Browser Mode or Playwright on `vp preview` |
+| Level         | What                                                                                                                          | How                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Unit          | `core`: detect, inspect parsing, SQL builder                                                                                  | Vitest (`vp test`)                                               |
+| Integration   | Generated SQL against the real `cityjson` extension                                                                           | Vitest + `@duckdb/node-api` (native DuckDB, no wasm workarounds) |
+| Browser smoke | Real duckdb-wasm + vendored extension, in headless Chromium: versions, inspect, package write. Known wasm bugs are `it.fails` | Vitest Browser Mode (Playwright provider)                        |
 
 The browser smoke test is the one that catches a duckdb-wasm and extension version mismatch.
 
 ## 8. Limits and risks
 
-| Risk | Mitigation |
-| ---- | ---------- |
-| **Extension writers don't work in wasm** (`std::ofstream`), and remote `read_cityjson` and file-handle reads are broken | Fix upstream in `duckdb-cityjson`. See [spike-findings](spike-findings.md), bugs 1–4 |
-| Memory: inputs are registered with `registerFileBuffer` (file handles hang, bug 3), so the input is held in memory too, and the output is copied (wasm FS → buffer → Blob) | State a practical limit of a few hundred MB; switch to file handles once bug 3 is fixed; OPFS later |
-| `DESCRIBE` cost | Measured: 0.17 s for 6.6 MB natively, so it's cheap. `*_metadata()` does not list LoDs, so `DESCRIBE` is required |
-| No COOP/COEP on Pages → no wasm threads | Single-threaded eh bundle |
-| Pasted URLs without CORS | Show a clear error, not a spinner |
-| `cityparquet_read` needs a real directory (bug 4) | Upstream fix; until then, load each module file with `read_parquet` + `cityparquet_init` and pass the footer's CRS explicitly |
-| Package creation needs a seeded object table | Seed `building` with `LIMIT 0` of the source, then `cityparquet_init`, then `insert_*`, each as its own statement |
-| Package → file CRS | Verified: take the EPSG id from the footer's PROJJSON (`cityparquet_city_field(city, 'crs')`) and pass it as `crs` |
-| A new DuckDB release breaks the lockstep | Pin both versions together, check in CI, update deliberately |
+| Risk                                                                                                                                                                       | Mitigation                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Extension writers don't work in wasm** (`std::ofstream`), and remote `read_cityjson` and file-handle reads are broken                                                    | Fix upstream in `duckdb-cityjson`. See [spike-findings](spike-findings.md), bugs 1–4                                          |
+| Memory: inputs are registered with `registerFileBuffer` (file handles hang, bug 3), so the input is held in memory too, and the output is copied (wasm FS → buffer → Blob) | State a practical limit of a few hundred MB; switch to file handles once bug 3 is fixed; OPFS later                           |
+| `DESCRIBE` cost                                                                                                                                                            | Measured: 0.17 s for 6.6 MB natively, so it's cheap. `*_metadata()` does not list LoDs, so `DESCRIBE` is required             |
+| No COOP/COEP on Pages → no wasm threads                                                                                                                                    | Single-threaded eh bundle                                                                                                     |
+| Pasted URLs without CORS                                                                                                                                                   | Show a clear error, not a spinner                                                                                             |
+| `cityparquet_read` needs a real directory (bug 4)                                                                                                                          | Upstream fix; until then, load each module file with `read_parquet` + `cityparquet_init` and pass the footer's CRS explicitly |
+| Package creation needs a seeded object table                                                                                                                               | Seed `building` with `LIMIT 0` of the source, then `cityparquet_init`, then `insert_*`, each as its own statement             |
+| Package → file CRS                                                                                                                                                         | Verified: take the EPSG id from the footer's PROJJSON (`cityparquet_city_field(city, 'crs')`) and pass it as `crs`            |
+| A new DuckDB release breaks the lockstep                                                                                                                                   | Pin both versions together, check in CI, update deliberately                                                                  |
 
 ## 9. Build order
 

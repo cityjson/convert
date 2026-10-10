@@ -47,6 +47,12 @@ describe("analyzeColumns", () => {
     expect(schema.lods).not.toContain("22");
   });
 
+  it("treats implicit_geometry (newer builds' name for template) as structural", () => {
+    const s = analyzeColumns([col("id"), col("implicit_geometry", "STRUCT(id BIGINT)"), col("x")]);
+    expect(s.attributes.map((c) => c.name)).toEqual(["x"]);
+    expect(selectColumns(s, { lods: [], attributes: [] })).toEqual(["id", "implicit_geometry"]);
+  });
+
   it("treats LoD-less geometry columns as structural, not attributes", () => {
     const s = analyzeColumns([
       col("id"),

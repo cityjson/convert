@@ -1,6 +1,6 @@
 # convert
 
-Convert 3D city models between **CityJSON**, **CityJSONSeq**, **FlatCityBuf** and
+Convert 3D city models between **CityJSON**, **CityJSONSeq**, **FlatCityBuf**, **OBJ** and
 **CityParquet** in the browser. Drop a file (or paste a URL), pick the output format, levels
 of detail and attributes, and download the result. Nothing is uploaded: the conversion runs
 locally in [DuckDB-Wasm](https://duckdb.org/docs/api/wasm/overview) with the

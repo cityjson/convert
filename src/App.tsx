@@ -17,8 +17,8 @@ export function App() {
         <div className="space-y-1">
           <h1 className="text-2xl font-light">Convert 3D city models</h1>
           <p>
-            Between CityJSON, CityJSONSeq, FlatCityBuf and CityParquet, keeping only the levels of
-            detail and attributes you need.
+            Between CityJSON, CityJSONSeq, FlatCityBuf, CityParquet and OBJ, keeping only the levels
+            of detail and attributes you need.
           </p>
         </div>
         <ConvertPage />

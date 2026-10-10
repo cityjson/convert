@@ -1,5 +1,5 @@
 // Runs the core orchestrator against the real cityjson extension (native DuckDB).
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -189,5 +189,58 @@ describe("CityParquet packages", () => {
     // The source package is untouched by the conversion.
     const source = await inspect(engine, { kind: "package", dir: out("pkg") });
     expect(source.schema.attributes.map((a) => a.name)).toEqual(["status"]);
+  });
+});
+
+// The community cityjson build has no read_obj yet; these run once it does (or against
+// a local build), and skip rather than fail until then. The browser smoke test covers
+// OBJ against the vendored build meanwhile.
+describe("OBJ", () => {
+  const CUBE = path.resolve(import.meta.dirname, "../fixtures/cube.obj");
+  let available = false;
+
+  beforeAll(async () => {
+    available =
+      (await count(`SELECT count(*) FROM duckdb_functions() WHERE function_name = 'read_obj'`)) > 0;
+  });
+
+  it("OBJ → CityJSONSeq carries the caller's CRS", async (ctx) => {
+    if (!available) ctx.skip();
+    const obj = await inspect(engine, {
+      kind: "file",
+      format: "obj",
+      path: CUBE,
+      options: { lod: "2.2", crs: { authority: "EPSG", code: "7415" } },
+    });
+    expect(obj.schema.lods).toEqual(["2.2"]);
+    await convert(engine, {
+      info: obj,
+      target: "cityjsonseq",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: out("cube.city.jsonl"),
+    });
+    expect(await count(`SELECT count(*) FROM read_cityjsonseq('${out("cube.city.jsonl")}')`)).toBe(
+      2,
+    );
+  });
+
+  it("CityJSONSeq → OBJ writes the .obj and .mtl into their own directory", async (ctx) => {
+    if (!available) ctx.skip();
+    const seq = await inspect(engine, { kind: "file", format: "cityjsonseq", path: FIXTURE });
+    mkdirSync(out("obj")); // a native file system, unlike DuckDB-Wasm's, needs the directory
+    const files = await convert(engine, {
+      info: seq,
+      target: "obj",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: out("obj/delft.obj"),
+    });
+    expect(files.map((f) => path.basename(f))).toEqual(["delft.mtl", "delft.obj"]);
+    // Objects with no LoD 2.2 geometry (3DBAG's parent Buildings) are not written.
+    const withLod22 = await count(
+      `SELECT count(*) FROM read_cityjsonseq('${FIXTURE}') WHERE geometry_lod2_2 IS NOT NULL`,
+    );
+    expect(
+      await count(`SELECT count(*) FROM read_obj('${out("obj/delft.obj")}', lod := '2.2')`),
+    ).toBe(withLod22);
   });
 });

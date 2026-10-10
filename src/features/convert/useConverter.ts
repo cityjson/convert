@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convert, inspect, type SourceInfo } from "@/core/convert";
 import { FORMAT_IDS, type FormatId } from "@/core/formats";
+import type { ReadOptions } from "@/core/sql";
 import type { BrowserEngine } from "@/engine/duckdb";
 import {
   collectOutput,
@@ -11,7 +12,8 @@ import {
   type PreparedInput,
 } from "./io";
 
-export type Phase = "idle" | "loading" | "ready" | "converting" | "done";
+/** `inspecting`: re-reading a loaded source with new read options (OBJ LoD / CRS). */
+export type Phase = "idle" | "loading" | "inspecting" | "ready" | "converting" | "done";
 
 export interface ConverterState {
   phase: Phase;
@@ -148,11 +150,39 @@ export function useConverter() {
     [],
   );
 
+  /** Re-reads the loaded file with new read options: the LoD and CRS an OBJ lacks. */
+  const setSourceOptions = useCallback(async (options: ReadOptions) => {
+    const { input } = stateRef.current;
+    if (!input || input.source.kind !== "file") return;
+    const source = { ...input.source, options };
+    setState((s) => ({
+      ...s,
+      phase: "inspecting",
+      status: "Inspecting…",
+      error: undefined,
+      result: undefined,
+    }));
+    try {
+      const info = await inspect(await getEngine(), source);
+      setState((s) => ({
+        ...s,
+        phase: "ready",
+        status: undefined,
+        input: { ...input, source },
+        info,
+        lods: info.schema.lods,
+        attributes: info.schema.attributes.map((a) => a.name),
+      }));
+    } catch (e) {
+      setState((s) => ({ ...s, phase: "ready", status: undefined, error: message(e) }));
+    }
+  }, []);
+
   const reset = useCallback(async () => {
     const { input } = stateRef.current;
     setState(INITIAL);
     if (input) await (await getEngine()).dropFiles(input.registered);
   }, []);
 
-  return { state, load, run, update, reset, formats: FORMAT_IDS };
+  return { state, load, run, update, setSourceOptions, reset, formats: FORMAT_IDS };
 }

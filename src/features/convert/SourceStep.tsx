@@ -9,7 +9,8 @@ import type { InputSelection, PreparedInput } from "./io";
 import { FormatBadge } from "./FormatBadge";
 
 const SAMPLE_URL = "https://cityjson.open3d.city/cityjsonseq/delft.city.jsonl";
-const ACCEPT = ".json,.jsonl,.fcb,.zip,.parquet";
+// .mtl and images so an OBJ can be chosen together with the files it names.
+const ACCEPT = ".json,.jsonl,.fcb,.obj,.mtl,.png,.jpg,.jpeg,.zip,.parquet";
 
 /** Collects files from a drop, walking into dropped folders (for CityParquet packages). */
 async function droppedFiles(dt: DataTransfer): Promise<File[]> {
@@ -123,7 +124,8 @@ export function SourceStep({ busy, status, input, info, onSelect, onClear }: Pro
             <div>
               <p className="font-medium text-foreground">Drop a 3D city model here</p>
               <p className="text-xs">
-                CityJSON, CityJSONSeq, FlatCityBuf, or a CityParquet package (folder or .zip)
+                CityJSON, CityJSONSeq, FlatCityBuf, OBJ (with its .mtl and textures), or a
+                CityParquet package (folder or .zip)
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2">
@@ -140,6 +142,7 @@ export function SourceStep({ busy, status, input, info, onSelect, onClear }: Pro
           ref={fileRef}
           type="file"
           accept={ACCEPT}
+          multiple
           hidden
           onChange={(e) =>
             e.target.files?.length && onSelect({ kind: "files", files: [...e.target.files] })

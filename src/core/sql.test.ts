@@ -23,6 +23,24 @@ describe("readSql", () => {
   });
 });
 
+describe("readSql options", () => {
+  it("passes the LoD an OBJ needs", () => {
+    expect(readSql("obj", "in/cube.obj", { lod: "2.2" })).toBe(
+      "read_obj('in/cube.obj', lod := '2.2')",
+    );
+  });
+
+  it("passes the caller's CRS to obj_metadata", () => {
+    expect(metadataSql("obj", "cube.obj", { crs: { authority: "EPSG", code: "7415" } })).toBe(
+      "SELECT * FROM obj_metadata('cube.obj', crs := 'EPSG:7415')",
+    );
+  });
+
+  it("omits options that are not given", () => {
+    expect(metadataSql("obj", "cube.obj")).toBe("SELECT * FROM obj_metadata('cube.obj')");
+  });
+});
+
 describe("describeSql / metadataSql", () => {
   it("describes a relation", () => {
     expect(describeSql("read_cityjson('a')")).toBe("DESCRIBE SELECT * FROM read_cityjson('a')");

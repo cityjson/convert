@@ -35,7 +35,11 @@ export function ConvertStep({ state, onConvert }: Props) {
         </>
       ) : (
         <>
-          <Button size="lg" onClick={onConvert} disabled={converting || noGeometry}>
+          <Button
+            size="lg"
+            onClick={onConvert}
+            disabled={converting || phase === "inspecting" || noGeometry}
+          >
             {converting ? <Loader2 className="animate-spin" /> : null}
             {converting ? status : `Convert to ${label}`}
           </Button>

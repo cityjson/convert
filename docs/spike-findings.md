@@ -21,6 +21,12 @@ Verified in the app with the Delft sample: CityJSON 7,576,741 bytes, FlatCityBuf
 bytes and a CityParquet package zip, all from CityJSONSeq; package `.zip` input → CityJSONSeq
 6,744,548 bytes. `tests/browser/engine.test.ts` now asserts every writer and package input.
 
+**OBJ.** `e43c986` on the extension's `develop` also writes the OBJ writer's `.obj`, `.mtl`
+and copied textures through DuckDB's FileSystem (the same fix as bug 1), and that build is
+what the app vendors now. `read_obj` already read through the fixed code. Delft →
+OBJ gives `delft.obj` (4.5 MB) + `delft.mtl`; `cube.obj` + `.mtl` → CityJSON with a
+user-supplied EPSG:7415 carries the CRS. glTF/GLB still write with local file streams.
+
 Still open upstream: bug 5, the `create_tables` doc mismatch, and the OBJ/glTF/mesh-texture
 writers, which still use `std::ofstream`.
 

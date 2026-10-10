@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { convert, inspect, type SourceInfo } from "@/core/convert";
 import { createBrowserEngine, type BrowserEngine } from "@/engine/duckdb";
 import fixture from "../fixtures/delft_subset.city.jsonl?raw";
+import cubeMtl from "../fixtures/cube.mtl?raw";
+import cubeObj from "../fixtures/cube.obj?raw";
 
 const OBJECTS = 40;
 const INPUT = "input/delft.city.jsonl";
@@ -96,5 +98,82 @@ describe("duckdb-wasm with the vendored extensions", () => {
       `SELECT count(*) AS n FROM read_cityjsonseq('from_pkg.city.jsonl')`,
     );
     expect(row!.n).toBe(OBJECTS);
+  });
+});
+
+describe("OBJ", () => {
+  const OBJ = "input/obj/cube.obj";
+  const CRS = { authority: "EPSG", code: "7415" };
+  let obj: SourceInfo;
+
+  beforeAll(async () => {
+    // The .mtl sits beside the .obj, where read_obj looks for it.
+    await engine.registerFile(OBJ, new TextEncoder().encode(cubeObj));
+    await engine.registerFile("input/obj/cube.mtl", new TextEncoder().encode(cubeMtl));
+    obj = await inspect(engine, {
+      kind: "file",
+      format: "obj",
+      path: OBJ,
+      options: { lod: "2.2", crs: CRS },
+    });
+  });
+
+  it("inspects an OBJ with the caller's LoD and CRS", () => {
+    expect(obj.schema.lods).toEqual(["2.2"]);
+    expect(obj.crs).toEqual(CRS);
+  });
+
+  it("converts an OBJ to CityJSONSeq, carrying the caller's CRS", async () => {
+    await convert(engine, {
+      info: obj,
+      target: "cityjsonseq",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: "from_obj.city.jsonl",
+    });
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM read_cityjsonseq('from_obj.city.jsonl')`,
+    );
+    expect(row!.n).toBe(2);
+    const [meta] = await engine.query(
+      `SELECT reference_system.code AS code FROM cityjsonseq_metadata('from_obj.city.jsonl')`,
+    );
+    expect(meta!.code).toBe("7415");
+  });
+
+  it("converts an OBJ to a CityParquet package", async () => {
+    const files = await convert(engine, {
+      info: obj,
+      target: "cityparquet",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: "obj_pkg",
+    });
+    expect(files.map((f) => f.split("/").pop())).toContain("building.parquet");
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM read_parquet('obj_pkg/building.parquet')`,
+    );
+    expect(row!.n).toBe(2);
+  });
+
+  it("writes CityJSONSeq as OBJ with its .mtl, which reads back", async () => {
+    const files = await convert(engine, {
+      info,
+      target: "obj",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: "out_obj/delft.obj",
+    });
+    const names = files.map((f) => f.split("/").pop());
+    expect(names).toContain("delft.obj");
+    expect(names).toContain("delft.mtl");
+    for (const f of files) expect((await engine.readFile(f)).byteLength).toBeGreaterThan(10);
+    // The OBJ writer skips objects with no geometry at the LoD it writes: in 3DBAG only
+    // BuildingParts carry LoD 2.2, their parent Buildings none.
+    const [expected] = await engine.query(
+      `SELECT count(*) AS n FROM read_cityjsonseq('${INPUT}') WHERE geometry_lod2_2 IS NOT NULL`,
+    );
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM read_obj('out_obj/delft.obj', lod := '2.2')`,
+    );
+    expect(row!.n).toBe(expected!.n);
+    expect(row!.n).toBeGreaterThan(0);
   });
 });

@@ -1,13 +1,15 @@
 import type { FormatId } from "@/core/formats";
 import { cn } from "@/lib/utils";
 
-// Each format wears one ink of the CityJSON mark. Amber and green are too light for
-// white text, so they carry the heading grey instead.
+// Each CityJSON-family format wears one ink of the CityJSON mark; OBJ, from outside the
+// family, wears the neutral grey. Amber, green and grey are too light for white text,
+// so they carry the heading grey instead.
 const INK: Record<FormatId, string> = {
   cityjson: "bg-house text-white",
   cityjsonseq: "bg-block text-foreground",
   flatcitybuf: "bg-tree text-foreground",
   cityparquet: "bg-ink text-white",
+  obj: "bg-mesh text-foreground",
 };
 
 const ABBR: Record<FormatId, string> = {
@@ -15,6 +17,7 @@ const ABBR: Record<FormatId, string> = {
   cityjsonseq: "CJS",
   flatcitybuf: "FCB",
   cityparquet: "CPQ",
+  obj: "OBJ",
 };
 
 export function FormatBadge({ format, className }: { format: FormatId; className?: string }) {

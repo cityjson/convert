@@ -13,15 +13,23 @@ import {
 import {
   copySql,
   describeSql,
+  metadataCall,
   metadataSql,
   quoteIdent,
   quoteLiteral,
   readSql,
   selectSql,
+  type ReadOptions,
 } from "./sql";
 
 export type Source =
-  | { kind: "file"; format: FileFormatId; path: string }
+  | {
+      kind: "file";
+      format: FileFormatId;
+      path: string;
+      /** For formats that carry no LoD or CRS of their own (OBJ). */
+      options?: ReadOptions;
+    }
   | { kind: "package"; dir: string };
 
 export interface SourceInfo {
@@ -36,7 +44,10 @@ export interface ConvertRequest {
   info: SourceInfo;
   target: FormatId;
   selection: Selection;
-  /** Output file path, or output directory when the target is a package. */
+  /**
+   * Output file path, or output directory when the target is a package. A multi-file
+   * target (OBJ) writes its sidecars beside the file, so give it a directory of its own.
+   */
   output: string;
 }
 
@@ -105,8 +116,8 @@ async function unionColumns(engine: Engine, schema: string, tables: string[]): P
 
 export async function inspect(engine: Engine, source: Source): Promise<SourceInfo> {
   if (source.kind === "file") {
-    const columns = await describe(engine, readSql(source.format, source.path));
-    const [meta] = await engine.query(metadataSql(source.format, source.path));
+    const columns = await describe(engine, readSql(source.format, source.path, source.options));
+    const [meta] = await engine.query(metadataSql(source.format, source.path, source.options));
     return {
       source,
       schema: analyzeColumns(columns),
@@ -175,15 +186,60 @@ async function fileToPackageSchema(
 ): Promise<void> {
   await resetSchema(engine, schema);
   await engine.exec(`CREATE SCHEMA ${quoteIdent(schema)}`);
+  const read = readSql(source.format, source.path, source.options);
+  const insertPragma = FORMATS[source.format].insertPragma;
+  if (!insertPragma) {
+    // No routing pragma (OBJ): every object is the one class read_obj was given
+    // (Building by default), so the whole read is the `building` table.
+    await engine.exec(`CREATE TABLE ${table(schema, "building")} AS SELECT * FROM ${read}`);
+    await engine.exec(`PRAGMA cityparquet_init(${quoteLiteral(schema)})`);
+    return;
+  }
   // cityparquet_init needs at least one object table, and insert_* cannot create the
   // first one itself (see docs/spike-findings.md), so seed an empty `building`.
-  await engine.exec(
-    `CREATE TABLE ${table(schema, "building")} AS SELECT * FROM ${readSql(source.format, source.path)} LIMIT 0`,
-  );
+  await engine.exec(`CREATE TABLE ${table(schema, "building")} AS SELECT * FROM ${read} LIMIT 0`);
   await engine.exec(`PRAGMA cityparquet_init(${quoteLiteral(schema)})`);
   await engine.exec(
-    `PRAGMA ${FORMATS[source.format].insertPragma}(${quoteLiteral(schema)}, ${quoteLiteral(source.path)}, create_tables = true)`,
+    `PRAGMA ${insertPragma}(${quoteLiteral(schema)}, ${quoteLiteral(source.path)}, create_tables = true)`,
   );
+}
+
+/**
+ * COPY options that carry a file source's metadata. The CityJSON family states its own
+ * CRS and appearance, which `metadata_from` reads back. An OBJ has no CRS: it comes
+ * from `obj_metadata` with the caller's CRS (its materials travel on their own).
+ */
+function sourceMetadata(source: Extract<Source, { kind: "file" }>): Record<string, string> {
+  if (source.format !== "obj") return { metadata_from: source.path };
+  if (!source.options?.crs) return {};
+  return {
+    metadata_query: `SELECT reference_system AS crs FROM ${metadataCall("obj", source.path, source.options)}`,
+  };
+}
+
+/** Target-specific COPY options: an OBJ holds one LoD, the highest one selected. */
+function targetOptions(target: FileFormatId, selection: Selection): Record<string, string> {
+  if (target !== "obj" || selection.lods.length === 0) return {};
+  const highest = [...selection.lods].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  )[selection.lods.length - 1]!;
+  return { lod: highest };
+}
+
+/** The files a COPY wrote: just `output`, or everything in its directory for OBJ. */
+async function writtenFiles(
+  engine: Engine,
+  target: FileFormatId,
+  output: string,
+): Promise<string[]> {
+  if (!FORMATS[target].multiFile) return [output];
+  const slash = output.lastIndexOf("/");
+  if (slash < 0)
+    throw new Error(`${FORMATS[target].label} output needs a directory of its own: ${output}`);
+  const rows = await engine.query(
+    `SELECT file FROM glob(${quoteLiteral(`${output.slice(0, slash)}/*`)}) ORDER BY file`,
+  );
+  return rows.map((r) => String(r.file));
 }
 
 /** Runs the conversion; returns the paths of the files it wrote. */
@@ -196,13 +252,13 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
       await engine.exec(
         copySql({
           columns: selectColumns(info.schema, selection),
-          from: readSql(source.format, source.path),
+          from: readSql(source.format, source.path, source.options),
           to: output,
           format: target,
-          options: { metadata_from: source.path },
+          options: { ...sourceMetadata(source), ...targetOptions(target, selection) },
         }),
       );
-      return [output];
+      return writtenFiles(engine, target, output);
     }
     // Package → file: one relation over every module table, by column name.
     const tables = await readPackage(engine, source.dir, WORK_SCHEMA);
@@ -216,11 +272,14 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
         relation: parts.join(" UNION ALL BY NAME "),
         to: output,
         format: target,
-        options: info.crs ? { crs: crsToUri(info.crs) } : {},
+        options: {
+          ...(info.crs ? { crs: crsToUri(info.crs) } : {}),
+          ...targetOptions(target, selection),
+        },
       }),
     );
     await resetSchema(engine, WORK_SCHEMA);
-    return [output];
+    return writtenFiles(engine, target, output);
   }
 
   // Target is a package.

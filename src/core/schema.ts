@@ -32,7 +32,8 @@ const STRUCTURAL = new Set([
   "children",
   "children_roles",
   "address",
-  "template",
+  "template", // the community v0.4.0 build's name for implicit_geometry
+  "implicit_geometry",
   "other",
   "bbox",
   "geometry",

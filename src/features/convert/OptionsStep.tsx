@@ -1,8 +1,11 @@
+import { useState, type FormEvent } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import type { SourceInfo } from "@/core/convert";
 import { FORMATS, FORMAT_IDS, type FormatId } from "@/core/formats";
+import type { ReadOptions } from "@/core/sql";
 import { cn } from "@/lib/utils";
 import { FormatBadge } from "./FormatBadge";
 
@@ -14,6 +17,8 @@ interface Props {
   attributes: string[];
   disabled: boolean;
   onChange: (patch: { target?: FormatId; lods?: string[]; attributes?: string[] }) => void;
+  /** Re-reads the source with new read options (OBJ only). */
+  onSourceOptions: (options: ReadOptions) => void;
 }
 
 function toggle(list: string[], value: string, on: boolean, order: string[]): string[] {
@@ -45,17 +50,103 @@ function Group({
   );
 }
 
-export function OptionsStep({ info, source, target, lods, attributes, disabled, onChange }: Props) {
+const LOD_PATTERN = /^\d(\.\d)?$/;
+
+/** The LoD and CRS an OBJ does not state, for the user to supply. */
+function ObjSourceOptions({
+  options,
+  disabled,
+  onApply,
+}: {
+  options: ReadOptions;
+  disabled: boolean;
+  onApply: (options: ReadOptions) => void;
+}) {
+  const [lod, setLod] = useState(options.lod ?? "2.2");
+  const [epsg, setEpsg] = useState(options.crs?.code ?? "");
+  const valid = LOD_PATTERN.test(lod.trim()) && /^\d*$/.test(epsg.trim());
+  const changed = lod.trim() !== (options.lod ?? "") || epsg.trim() !== (options.crs?.code ?? "");
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    const code = epsg.trim();
+    onApply({ lod: lod.trim(), ...(code ? { crs: { authority: "EPSG", code } } : {}) });
+  };
+  return (
+    <form onSubmit={submit} className="space-y-2">
+      <p className="text-xs">
+        OBJ states no level of detail or coordinate reference system: say what its geometry is.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="obj-lod" className="text-xs">
+            Read as LoD
+          </Label>
+          <Input
+            id="obj-lod"
+            value={lod}
+            onChange={(e) => setLod(e.target.value)}
+            disabled={disabled}
+            aria-invalid={!LOD_PATTERN.test(lod.trim())}
+            className="w-24 font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="obj-crs" className="text-xs">
+            CRS (EPSG code, optional)
+          </Label>
+          <Input
+            id="obj-crs"
+            inputMode="numeric"
+            placeholder="e.g. 7415"
+            value={epsg}
+            onChange={(e) => setEpsg(e.target.value)}
+            disabled={disabled}
+            aria-invalid={!/^\d*$/.test(epsg.trim())}
+            className="w-36 font-mono"
+          />
+        </div>
+        <Button type="submit" variant="outline" size="sm" disabled={disabled || !valid || !changed}>
+          Apply
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export function OptionsStep({
+  info,
+  source,
+  target,
+  lods,
+  attributes,
+  disabled,
+  onChange,
+  onSourceOptions,
+}: Props) {
   const allLods = info.schema.lods;
   const allAttributes = info.schema.attributes.map((a) => a.name);
+  const sourceOptions = info.source.kind === "file" ? info.source.options : undefined;
 
   return (
     <div className="space-y-6">
+      {source === "obj" && sourceOptions && (
+        <Group title="OBJ source">
+          <ObjSourceOptions
+            // Remount after a re-read so the fields show what was applied.
+            key={`${sourceOptions.lod}|${sourceOptions.crs?.code ?? ""}`}
+            options={sourceOptions}
+            disabled={disabled}
+            onApply={onSourceOptions}
+          />
+        </Group>
+      )}
+
       <Group title="Output format">
         <div
           role="radiogroup"
           aria-label="Output format"
-          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5"
         >
           {FORMAT_IDS.map((id) => {
             const selected = id === target;
@@ -78,7 +169,11 @@ export function OptionsStep({ info, source, target, lods, attributes, disabled, 
                 <span>
                   <span className="block font-medium text-foreground">{FORMATS[id].label}</span>
                   <span className="block font-mono text-[11px]">
-                    {id === "cityparquet" ? "package · .zip" : FORMATS[id].extension}
+                    {id === "cityparquet"
+                      ? "package · .zip"
+                      : id === "obj"
+                        ? ".obj + .mtl · .zip"
+                        : FORMATS[id].extension}
                     {id === source ? " · same as input" : ""}
                   </span>
                 </span>
@@ -89,6 +184,11 @@ export function OptionsStep({ info, source, target, lods, attributes, disabled, 
       </Group>
 
       <Group title="Levels of detail">
+        {target === "obj" && allLods.length > 1 && (
+          <p className="text-xs">
+            OBJ holds one level of detail: the highest one selected is written.
+          </p>
+        )}
         {allLods.length === 0 ? (
           <p className="text-xs">This dataset has no geometry columns.</p>
         ) : (

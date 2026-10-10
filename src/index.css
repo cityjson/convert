@@ -42,6 +42,8 @@
   --color-block: var(--cj-block);
   --color-tree: var(--cj-tree);
   --color-ink: var(--cj-ink);
+  /* Formats outside the CityJSON family (OBJ). */
+  --color-mesh: var(--cj-grey-dk-000);
 }
 
 @layer base {

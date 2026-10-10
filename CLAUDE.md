@@ -2,9 +2,12 @@
 
 Browser-based converter between 3D city model formats. Design and rationale: [docs/idea.md](docs/idea.md).
 
-v1 formats: CityJSON (`.city.json`), CityJSONSeq (`.city.jsonl`), FlatCityBuf (`.fcb`), and the
+Formats: CityJSON (`.city.json`), CityJSONSeq (`.city.jsonl`), FlatCityBuf (`.fcb`), OBJ
+(`.obj` with its `.mtl` and textures; in and out as a set, zipped on download), and the
 CityParquet package (a directory; it arrives as a folder or `.zip` and is downloaded as `.zip`).
-Later: CityGML 2.0/3.0, OBJ, glTF. Those are blocked on extension support, so don't stub them.
+OBJ states no LoD or CRS: the user supplies them (`read_obj(lod := …)`, `obj_metadata(crs := …)`).
+Later: glTF/GLB (the extension writes them, but not yet through DuckDB's file system) and
+CityGML 2.0/3.0 (no extension support). Don't stub them.
 
 ## The one rule
 
@@ -67,7 +70,7 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
 - **Extensions are vendored, never loaded from the community CDN at runtime.** The CDN path
   has no extension version in it, so a new release would change behaviour without a deploy.
   `parquet` is the official signed v1.5.6 build. `cityjson` is **self-built** from
-  duckdb-cityjson `8095cb4` (the wasm I/O fixes, #23) for v1.5.6, because the community build
+  duckdb-cityjson `e43c986` (the wasm I/O fixes of #23 and the OBJ writer on DuckDB's file system) for v1.5.6, because the community build
   is still `a1455e1`. Self-built means unsigned, so the engine opens with
   `allowUnsignedExtensions: true`. Once the community repository publishes a fixed v1.5.6
   build, re-vendor it with `vp run vendor:ext` and turn the flag back off. `parquet` is vendored because a custom repository
@@ -76,7 +79,7 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
 - **Selection semantics.** LoD filtering keeps only the chosen `*_lodX_Y` column groups (the
   reader's `lod =>` accepts a single LoD only). Attribute filtering only ever drops attribute
   columns. Never drop `id`, `feature_id`, `object_type`, `children`, `children_roles`,
-  `parents`, `address`, `template`, `other`, geometry, property, material or texture columns,
+  `parents`, `address`, `template` / `implicit_geometry`, `other`, geometry, property, material or texture columns,
   or `bbox`.
 - **Always pass `metadata_from`** for a file source, so CRS and appearance don't depend on
   the extension inferring the source. For package sources, pass `crs` from the footer.

@@ -41,7 +41,7 @@ function ErrorAlert({ message }: { message?: string }) {
 }
 
 export function ConvertPage() {
-  const { state, load, run, update, reset } = useConverter();
+  const { state, load, run, update, setSourceOptions, reset } = useConverter();
   const { phase, input, info } = state;
   const ready = !!input && !!info;
   const busy = phase === "loading";
@@ -69,8 +69,9 @@ export function ConvertPage() {
             target={state.target}
             lods={state.lods}
             attributes={state.attributes}
-            disabled={phase === "converting"}
+            disabled={phase === "converting" || phase === "inspecting"}
             onChange={update}
+            onSourceOptions={setSourceOptions}
           />
         )}
       </Step>

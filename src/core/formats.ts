@@ -1,7 +1,7 @@
 // The formats the app converts between, and how the cityjson extension reads and
 // writes each one. Only formats the extension supports belong here.
 
-export type FileFormatId = "cityjson" | "cityjsonseq" | "flatcitybuf";
+export type FileFormatId = "cityjson" | "cityjsonseq" | "flatcitybuf" | "obj";
 export type FormatId = FileFormatId | "cityparquet";
 
 export interface FileFormat {
@@ -16,8 +16,18 @@ export interface FileFormat {
   metadata: string;
   /** `FORMAT` name for `COPY … TO`. */
   copyFormat: string;
-  /** Pragma that inserts this format into a CityParquet package schema. */
-  insertPragma: string;
+  /**
+   * Pragma that inserts this format into a CityParquet package schema, or null when the
+   * extension has none (OBJ: every object is one class, so it is loaded directly).
+   */
+  insertPragma: string | null;
+  /** Writing it can produce several files (OBJ: the .obj, its .mtl and texture images). */
+  multiFile: boolean;
+  /**
+   * The format carries no LoD or CRS of its own: the caller supplies a LoD to read it
+   * with and, optionally, a CRS (OBJ).
+   */
+  needsReadOptions: boolean;
 }
 
 export interface PackageFormat {
@@ -40,6 +50,8 @@ export const FORMATS = {
     metadata: "cityjson_metadata",
     copyFormat: "cityjson",
     insertPragma: "insert_cityjson",
+    multiFile: false,
+    needsReadOptions: false,
   },
   cityjsonseq: {
     id: "cityjsonseq",
@@ -50,6 +62,8 @@ export const FORMATS = {
     metadata: "cityjsonseq_metadata",
     copyFormat: "cityjsonseq",
     insertPragma: "insert_cityjsonseq",
+    multiFile: false,
+    needsReadOptions: false,
   },
   flatcitybuf: {
     id: "flatcitybuf",
@@ -60,6 +74,20 @@ export const FORMATS = {
     metadata: "flatcitybuf_metadata",
     copyFormat: "flatcitybuf",
     insertPragma: "insert_flatcitybuf",
+    multiFile: false,
+    needsReadOptions: false,
+  },
+  obj: {
+    id: "obj",
+    kind: "file",
+    label: "OBJ",
+    extension: ".obj",
+    reader: "read_obj",
+    metadata: "obj_metadata",
+    copyFormat: "obj",
+    insertPragma: null,
+    multiFile: true,
+    needsReadOptions: true,
   },
   cityparquet: {
     id: "cityparquet",

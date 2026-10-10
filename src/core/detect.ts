@@ -7,6 +7,7 @@ const BY_EXTENSION: [string, FormatId][] = [
   [".jsonl", "cityjsonseq"],
   [".json", "cityjson"],
   [".fcb", "flatcitybuf"],
+  [".obj", "obj"],
   [".parquet", "cityparquet"],
   [".zip", "cityparquet"],
 ];
@@ -52,6 +53,11 @@ export function baseName(name: string): string {
   const lower = file.toLowerCase();
   const ext = BY_EXTENSION.find(([e]) => lower.endsWith(e))?.[0];
   return (ext ? file.slice(0, -ext.length) : file) || "citymodel";
+}
+
+/** Files that travel with an OBJ: its material library and the texture images it names. */
+export function isObjSidecar(path: string): boolean {
+  return /\.(mtl|png|jpe?g)$/i.test(path);
 }
 
 /** Whether a path belongs to a CityParquet package directory. */

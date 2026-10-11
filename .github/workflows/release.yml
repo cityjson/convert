@@ -1,8 +1,9 @@
 name: release
 
-# Creates the GitHub release for the latest version on npm, after "Publish to npm"
+# Creates the GitHub release for the newest published version (the newest vX.Y.Z tag,
+# which "Publish to npm" pushes), once npm serves it. Runs after "Publish to npm"
 # succeeds. Idempotent: a version that already has a release (e.g. after a dry run,
-# which publishes nothing) is skipped. Can also be run by hand to retry.
+# which publishes and tags nothing) is skipped. Can also be run by hand to retry.
 on:
   workflow_run:
     workflows: ["Publish to npm"]
@@ -21,50 +22,60 @@ jobs:
         with:
           fetch-depth: 0
 
-      # npm commands run outside the repo: its devEngines pins pnpm, and npm refuses there.
-      - name: Latest version on npm
-        id: npm
-        working-directory: ${{ runner.temp }}
+      # The version is the newest vX.Y.Z tag, which "Publish to npm" creates. npm's own
+      # "latest" can lag a fresh publish (a first publish briefly shows 0.0.0-stage).
+      - name: Version to release
+        id: version
         run: |
-          if ! version="$(npm view @cityjson/cjconv version 2> /dev/null)"; then
-            echo "Nothing is published on npm yet (a dry run publishes nothing); no release to make." >> "$GITHUB_STEP_SUMMARY"
+          tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+          if [ -z "$tag" ]; then
+            echo "No vX.Y.Z tag yet: nothing has been published, so there is no release to make." >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          core="$(npm view @cityjson/cjconv-core version)"
-          if [ "$version" != "$core" ]; then
-            echo "::error::@cityjson/cjconv is $version but @cityjson/cjconv-core is $core; they are published together."
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
       - name: Already released?
         id: existing
-        if: steps.npm.outputs.skip != 'true'
+        if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.npm.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "v${VERSION}" > /dev/null 2>&1; then
             echo "v${VERSION} already has a release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif ! git rev-parse -q --verify "refs/tags/v${VERSION}" > /dev/null; then
-            echo "::error::npm has v${VERSION}, but the repository has no tag v${VERSION}."
-            exit 1
           fi
 
-      - name: Fetch the published tarballs
-        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
+      # npm commands run outside the repo: its devEngines pins pnpm, and npm refuses there.
+      - name: Wait for npm to serve v${{ steps.version.outputs.version }}
+        if: steps.version.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
         working-directory: ${{ runner.temp }}
         env:
-          VERSION: ${{ steps.npm.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for attempt in $(seq 1 12); do
+            cli="$(npm view "@cityjson/cjconv@${VERSION}" version 2> /dev/null || true)"
+            core="$(npm view "@cityjson/cjconv-core@${VERSION}" version 2> /dev/null || true)"
+            if [ "$cli" = "$VERSION" ] && [ "$core" = "$VERSION" ]; then exit 0; fi
+            echo "npm does not serve ${VERSION} of both packages yet (attempt ${attempt}); waiting."
+            sleep 10
+          done
+          echo "::error::v${VERSION} is tagged, but npm does not serve @cityjson/cjconv@${VERSION} and @cityjson/cjconv-core@${VERSION}."
+          exit 1
+
+      - name: Fetch the published tarballs
+        if: steps.version.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: npm pack "@cityjson/cjconv-core@${VERSION}" "@cityjson/cjconv@${VERSION}"
 
       - name: Create the release
-        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
+        if: steps.version.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.npm.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           cat > "$RUNNER_TEMP/notes.md" <<EOF
           Published to npm:

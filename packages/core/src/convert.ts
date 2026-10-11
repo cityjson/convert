@@ -170,6 +170,21 @@ const NUMERIC = [
   "DOUBLE",
 ];
 
+/**
+ * The only types a merge casts to. Column types come from DESCRIBE, and a nested type's
+ * field names come from the file being read, so a type string is never pasted into SQL
+ * unless it is one of these fixed scalar names.
+ */
+const CASTABLE = new Set([
+  ...NUMERIC,
+  "VARCHAR",
+  "BOOLEAN",
+  "DATE",
+  "TIME",
+  "TIMESTAMP",
+  "TIMESTAMP WITH TIME ZONE",
+]);
+
 const relationOf = (info: SourceInfo) => {
   const s = info.source as FileSource;
   return readSql(s.format, s.path, s.options);
@@ -204,7 +219,7 @@ async function resolveType(
         `${sourcePath(b.input)}; the inputs do not share a schema.`,
     );
   const typed = types.filter((t) => t !== "VARCHAR");
-  if (typed.length !== 1 || !types.includes("VARCHAR")) {
+  if (typed.length !== 1 || !types.includes("VARCHAR") || !CASTABLE.has(typed[0]!)) {
     throw conflict(
       live.find((e) => e.type === types[0])!,
       live.find((e) => e.type === types[1])!,
@@ -261,6 +276,14 @@ async function inspectMerge(
     let type = entries[0]!.type;
     if (entries.some((e) => e.type !== type)) {
       type = await resolveType(engine, name, entries);
+      // Every type a merge casts to is one of a fixed set, never a string from a file.
+      if (!CASTABLE.has(type)) {
+        const [a, b] = [entries[0]!, entries.find((e) => e.type !== entries[0]!.type)!];
+        throw new Error(
+          `Column "${name}" is ${a.type} in ${sourcePath(a.input)} but ${b.type} in ` +
+            `${sourcePath(b.input)}; the inputs do not share a schema.`,
+        );
+      }
       mergeTypes[name] = type;
     }
     columns.push({ name, type });

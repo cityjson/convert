@@ -177,3 +177,45 @@ describe("OBJ", () => {
     expect(row!.n).toBeGreaterThan(0);
   });
 });
+
+describe("several files of one dataset", () => {
+  const A = "tiles/a.city.jsonl";
+  const B = "tiles/b.city.jsonl";
+  const seq = (path: string) => ({ kind: "file" as const, format: "cityjsonseq" as const, path });
+
+  beforeAll(async () => {
+    const read = `read_cityjsonseq('${INPUT}')`;
+    const firstTen = `(SELECT DISTINCT feature_id FROM ${read} ORDER BY feature_id LIMIT 10)`;
+    await engine.exec(
+      `COPY (SELECT * FROM ${read} WHERE feature_id IN ${firstTen}) TO '${A}' (FORMAT cityjsonseq, metadata_from '${INPUT}')`,
+    );
+    await engine.exec(
+      `COPY (SELECT * FROM ${read} WHERE feature_id NOT IN ${firstTen}) TO '${B}' (FORMAT cityjsonseq, metadata_from '${INPUT}')`,
+    );
+  });
+
+  it("combines them into one output", async () => {
+    const merged = await inspect(engine, { kind: "merge", sources: [seq(A), seq(B)] });
+    expect(merged.objects).toBe(OBJECTS);
+    await convert(engine, {
+      info: merged,
+      target: "flatcitybuf",
+      selection: { lods: ["2.2"], attributes: [] },
+      output: "merged.fcb",
+    });
+    const [row] = await engine.query(`SELECT count(*) AS n FROM read_flatcitybuf('merged.fcb')`);
+    expect(row!.n).toBe(OBJECTS);
+  });
+
+  it("refuses an object in two of them", async () => {
+    const twice = await inspect(engine, { kind: "merge", sources: [seq(A), seq(A)] });
+    await expect(
+      convert(engine, {
+        info: twice,
+        target: "flatcitybuf",
+        selection: { lods: ["2.2"], attributes: [] },
+        output: "twice.fcb",
+      }),
+    ).rejects.toThrow(/duplicate id/i);
+  });
+});

@@ -1,10 +1,17 @@
 // Turns what the user dropped or pasted into files DuckDB can read, and what the
 // extension wrote into one download.
 import { unzipSync, zipSync } from "fflate";
-import type { Source } from "@cityjson/cjconv-core";
-import { baseName, detectFormat, isObjSidecar, isPackagePath } from "@cityjson/cjconv-core";
-import { FORMATS, type FormatId } from "@cityjson/cjconv-core";
-import type { ReadOptions } from "@cityjson/cjconv-core";
+import {
+  FORMATS,
+  baseName,
+  detectFormat,
+  isObjSidecar,
+  isPackagePath,
+  type FileSource,
+  type FormatId,
+  type ReadOptions,
+  type Source,
+} from "@cityjson/cjconv-core";
 import type { BrowserEngine } from "@/engine/duckdb";
 
 export type InputSelection = { kind: "files"; files: File[] } | { kind: "url"; url: string };
@@ -17,6 +24,8 @@ export interface PreparedInput {
   bytes: number;
   /** Virtual-FS paths to drop when the input is replaced. */
   registered: string[];
+  /** For a merge: the names of the files being combined. */
+  parts?: string[];
 }
 
 export class InputError extends Error {}
@@ -76,6 +85,39 @@ async function registerObj(engine: BrowserEngine, files: NamedBytes[]): Promise<
     name: fileName(objs[0]!.name),
     bytes,
     registered,
+  };
+}
+
+/**
+ * Several CityJSON / CityJSONSeq / FlatCityBuf files: tiles of one dataset, combined into
+ * one output. Their checks (unique ids, one CRS, one schema) run when they are inspected.
+ */
+async function registerMerge(engine: BrowserEngine, files: NamedBytes[]): Promise<PreparedInput> {
+  const sources: FileSource[] = [];
+  const registered: string[] = [];
+  let bytes = 0;
+  for (const [i, f] of files.entries()) {
+    const format = detectFormat(f.name, f.bytes.subarray(0, SNIFF_BYTES));
+    if (!format || format === "cityparquet" || format === "obj") {
+      throw new InputError(
+        `${fileName(f.name)} can't be combined with the other files: several files are merged ` +
+          "only when each is CityJSON, CityJSONSeq or FlatCityBuf.",
+      );
+    }
+    const path = `${INPUT_DIR}/merge/${i}${FORMATS[format].extension}`;
+    bytes += f.bytes.byteLength; // before registerFileBuffer detaches the buffer
+    await engine.registerFile(path, f.bytes);
+    sources.push({ kind: "file", format, path });
+    registered.push(path);
+  }
+  const formats = new Set(sources.map((s) => s.format));
+  return {
+    source: { kind: "merge", sources },
+    format: formats.size === 1 ? sources[0]!.format : "cityjsonseq",
+    name: `${baseName(files[0]!.name)}_merged`,
+    bytes,
+    registered,
+    parts: files.map((f) => fileName(f.name)),
   };
 }
 
@@ -164,8 +206,11 @@ export async function prepareInput(
     })),
   );
   if (hasObj(loaded)) return registerObj(engine, loaded);
-  const folder = files[0]!.webkitRelativePath.split("/")[0] || "package";
-  return registerPackage(engine, loaded, folder);
+  if (loaded.some((f) => f.name.toLowerCase().endsWith(".parquet"))) {
+    const folder = files[0]!.webkitRelativePath.split("/")[0] || "package";
+    return registerPackage(engine, loaded, folder);
+  }
+  return registerMerge(engine, loaded);
 }
 
 /**

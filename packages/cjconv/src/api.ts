@@ -16,6 +16,7 @@ import {
   detectFormat,
   inspect,
   type Crs,
+  type FileSource,
   type FormatId,
   type ReadOptions,
   type Source,
@@ -36,7 +37,8 @@ export interface SourceOptions extends NodeEngineOptions {
 }
 
 export interface ConvertFileOptions extends SourceOptions {
-  input: string;
+  /** One input, or several files of one dataset to combine into one output. */
+  input: string | string[];
   /** A file path, or a directory for a CityParquet package. */
   output: string;
   /** The output format; by default taken from the output name. */
@@ -193,23 +195,51 @@ async function withEngine<T>(
   }
 }
 
-/** What an input holds: format, CRS, LoDs, attributes, object count. */
-export async function inspectFile(input: string, options: SourceOptions = {}): Promise<SourceInfo> {
-  const source = resolveSource(input, options);
+/**
+ * One input as itself; several as a merge. A merge combines files (not package
+ * directories) of one dataset; its checks run when it is inspected and converted.
+ */
+function resolveInputs(input: string | string[], options: SourceOptions): Source {
+  const inputs = typeof input === "string" ? [input] : input;
+  if (inputs.length === 0) throw new CjconvError("No input given.");
+  if (inputs.length === 1) return resolveSource(inputs[0]!, options);
+  const sources = inputs.map((i) => resolveSource(i, options));
+  const packages = sources.filter((s) => s.kind !== "file");
+  if (packages.length > 0) {
+    throw new CjconvError(
+      "Several inputs are combined file by file; a CityParquet package directory cannot be one of them.",
+    );
+  }
+  return { kind: "merge", sources: sources as FileSource[] };
+}
+
+const usesObj = (source: Source) =>
+  source.kind === "file"
+    ? source.format === "obj"
+    : source.kind === "merge" && source.sources.some((s) => s.format === "obj");
+
+/** What an input (or several, combined) holds: format, CRS, LoDs, attributes, object count. */
+export async function inspectFile(
+  input: string | string[],
+  options: SourceOptions = {},
+): Promise<SourceInfo> {
+  const source = resolveInputs(input, options);
   return withEngine(options, async (engine) => {
-    if (source.kind === "file" && source.format === "obj") await requireObjSupport(engine);
+    if (usesObj(source)) await requireObjSupport(engine);
     return inspect(engine, source);
   });
 }
 
-/** Converts `input` to `output`, keeping the chosen LoDs and attributes. */
+/**
+ * Converts `input` to `output`, keeping the chosen LoDs and attributes. Several inputs
+ * are combined into the one output; an id in more than one input, a column typed
+ * differently between them, or different CRSs are refused.
+ */
 export async function convertFile(options: ConvertFileOptions): Promise<ConvertFileResult> {
-  const source = resolveSource(options.input, options);
+  const source = resolveInputs(options.input, options);
   const target = resolveTarget(options.output, options.to);
   return withEngine(options, async (engine) => {
-    if ((source.kind === "file" && source.format === "obj") || target === "obj") {
-      await requireObjSupport(engine);
-    }
+    if (usesObj(source) || target === "obj") await requireObjSupport(engine);
     const info = await inspect(engine, source);
     checkSelection(info, options.lods, options.attributes);
     const output = prepareOutput(options.output, target, options.force ?? false);

@@ -31,7 +31,24 @@ cjconv https://cityjson.open3d.city/cityjsonseq/delft.city.jsonl delft.fcb
 # What is in a file: format, CRS, LoDs, attributes, object count
 cjconv info delft.city.jsonl
 cjconv info delft.city.jsonl --json
+
+# Several files of one dataset, combined into one output (the last argument)
+cjconv tile-1.city.jsonl tile-2.city.jsonl tile-3.fcb delft.city.json
+cjconv info tile-*.city.jsonl
 ```
+
+**Combining inputs.** Every input goes into one table, which is then exported. The
+inputs are meant to be pieces of the same dataset, so anything that would need a guess
+is refused before writing:
+
+- an id in more than one input;
+- a column whose type differs between inputs;
+- inputs in different CRSs (nothing is reprojected);
+- materials or textures in more than one input (their ids are per file).
+
+A column that only some inputs have is fine: the other rows get NULL. Inputs are files;
+a CityParquet package directory can't be one of several inputs. The website does the
+same when several CityJSON, CityJSONSeq or FlatCityBuf files are dropped at once.
 
 | Option                                    | Meaning                                                                                            |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |

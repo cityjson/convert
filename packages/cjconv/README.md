@@ -19,6 +19,7 @@ cjconv delft.city.jsonl delft_pkg/                         # CityParquet package
 cjconv delft_pkg delft.city.jsonl
 cjconv https://cityjson.open3d.city/cityjsonseq/delft.city.jsonl delft.fcb
 cjconv info delft.city.jsonl                               # format, CRS, LoDs, attributes
+cjconv tile-1.city.jsonl tile-2.city.jsonl delft.fcb       # combine tiles into one output
 cjconv --help
 ```
 
@@ -29,6 +30,10 @@ local build instead.
 **OBJ** needs a `cityjson` build newer than the community one, which predates OBJ support:
 pass `--extension`. An OBJ states no LoD or CRS, so give them:
 `cjconv cube.obj cube.city.jsonl --obj-lod 2.2 --crs EPSG:7415`.
+
+Several inputs are pieces of one dataset, combined into the one output (the last
+argument). An id in more than one input, a column typed differently between inputs, or
+inputs in different CRSs are refused rather than guessed at.
 
 ## Library
 
@@ -44,6 +49,9 @@ const { files } = await convertFile({
   lods: ["2.2"],
   attributes: ["status"],
 });
+
+// Several tiles into one file
+await convertFile({ input: ["tile-1.city.jsonl", "tile-2.city.jsonl"], output: "delft.fcb" });
 ```
 
 For several conversions, create one engine with `createNodeEngine()` and pass it as

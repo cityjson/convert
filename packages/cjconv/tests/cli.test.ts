@@ -180,12 +180,53 @@ describe("--help and --version", () => {
   it("prints help", async () => {
     const r = await run("--help");
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("cjconv <input> <output>");
+    expect(r.stdout).toContain("cjconv <input>... <output>");
   });
 
   it("prints the version", async () => {
     const r = await run("--version");
     expect(r.code).toBe(0);
     expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
+describe("several inputs", () => {
+  let a: string;
+  let b: string;
+
+  beforeAll(async () => {
+    // Two tiles of the fixture's dataset, split by feature.
+    a = out("tile-a.city.jsonl");
+    b = out("tile-b.city.jsonl");
+    const read = `read_cityjsonseq('${FIXTURE}')`;
+    const firstTen = `(SELECT DISTINCT feature_id FROM ${read} ORDER BY feature_id LIMIT 10)`;
+    await engine.exec(
+      `COPY (SELECT * FROM ${read} WHERE feature_id IN ${firstTen}) TO '${a}' (FORMAT cityjsonseq, metadata_from '${FIXTURE}')`,
+    );
+    await engine.exec(
+      `COPY (SELECT * FROM ${read} WHERE feature_id NOT IN ${firstTen}) TO '${b}' (FORMAT cityjsonseq, metadata_from '${FIXTURE}')`,
+    );
+  });
+
+  it("combines every input before the output (the last argument)", async () => {
+    const r = await run(a, b, out("ab.fcb"));
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("2 inputs");
+    expect(await count(`SELECT count(*) FROM read_flatcitybuf('${out("ab.fcb")}')`)).toBe(OBJECTS);
+  });
+
+  it("refuses an object that appears in two inputs", async () => {
+    const r = await run(a, a, out("aa.fcb"));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/duplicate id/i);
+  });
+
+  it("summarises the combination with info", async () => {
+    const r = await run("info", a, b, "--json");
+    expect(r.code).toBe(0);
+    const info = JSON.parse(r.stdout) as Record<string, unknown>;
+    expect(info.objects).toBe(OBJECTS);
+    expect(info.inputs).toEqual([a, b]);
   });
 });

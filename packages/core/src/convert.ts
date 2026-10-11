@@ -22,15 +22,19 @@ import {
   type ReadOptions,
 } from "./sql";
 
+export interface FileSource {
+  kind: "file";
+  format: FileFormatId;
+  path: string;
+  /** For formats that carry no LoD or CRS of their own (OBJ). */
+  options?: ReadOptions;
+}
+
 export type Source =
-  | {
-      kind: "file";
-      format: FileFormatId;
-      path: string;
-      /** For formats that carry no LoD or CRS of their own (OBJ). */
-      options?: ReadOptions;
-    }
-  | { kind: "package"; dir: string };
+  | FileSource
+  | { kind: "package"; dir: string }
+  /** Several files of one dataset, combined into one output. */
+  | { kind: "merge"; sources: FileSource[] };
 
 export interface SourceInfo {
   source: Source;
@@ -40,6 +44,8 @@ export interface SourceInfo {
   tables: string[];
   /** CityObjects in the source, when the metadata or the tables say. */
   objects?: number;
+  /** For a merge: each input's own info, in input order. */
+  inputs?: SourceInfo[];
 }
 
 export interface ConvertRequest {
@@ -125,7 +131,75 @@ async function countRows(engine: Engine, schema: string, tables: string[]): Prom
   return n;
 }
 
+/**
+ * The format a source is in: a package is CityParquet; a merge, its inputs' format when
+ * they share one (undefined when they mix formats).
+ */
+export function sourceFormat(source: Source): FormatId | undefined {
+  if (source.kind === "package") return "cityparquet";
+  if (source.kind === "file") return source.format;
+  const formats = new Set(source.sources.map((s) => s.format));
+  return formats.size === 1 ? source.sources[0]!.format : undefined;
+}
+
+const crsLabel = (info: SourceInfo) => (info.crs ? crsToAuthCode(info.crs) : "no CRS");
+const sourcePath = (info: SourceInfo) =>
+  info.source.kind === "file"
+    ? info.source.path
+    : info.source.kind === "package"
+      ? info.source.dir
+      : "";
+
+/**
+ * Inspects each input of a merge and refuses what cannot be combined without guessing:
+ * inputs in different CRSs (a merge does not reproject) and a column whose type differs
+ * between inputs. A column only some inputs have is fine: the others fill it with NULL.
+ */
+async function inspectMerge(
+  engine: Engine,
+  source: Extract<Source, { kind: "merge" }>,
+): Promise<SourceInfo> {
+  if (source.sources.length < 2) throw new Error("A merge needs at least two inputs.");
+  const inputs: SourceInfo[] = [];
+  for (const s of source.sources) inputs.push(await inspect(engine, s));
+
+  const first = inputs[0]!;
+  for (const other of inputs.slice(1)) {
+    if (crsLabel(other) !== crsLabel(first)) {
+      throw new Error(
+        `Inputs disagree on CRS: ${sourcePath(first)} is ${crsLabel(first)}, ` +
+          `${sourcePath(other)} is ${crsLabel(other)}. A merge does not reproject.`,
+      );
+    }
+  }
+
+  const seen = new Map<string, { column: Column; path: string }>();
+  for (const input of inputs) {
+    for (const column of input.schema.columns) {
+      const prior = seen.get(column.name);
+      if (!prior) seen.set(column.name, { column, path: sourcePath(input) });
+      else if (prior.column.type !== column.type) {
+        throw new Error(
+          `Column "${column.name}" is ${prior.column.type} in ${prior.path} but ` +
+            `${column.type} in ${sourcePath(input)}; the inputs do not share a schema.`,
+        );
+      }
+    }
+  }
+
+  const counts = inputs.map((i) => i.objects);
+  return {
+    source,
+    schema: analyzeColumns([...seen.values()].map((v) => v.column)),
+    crs: first.crs,
+    tables: [],
+    objects: counts.every((n) => n !== undefined) ? counts.reduce((a, b) => a + b, 0) : undefined,
+    inputs,
+  };
+}
+
 export async function inspect(engine: Engine, source: Source): Promise<SourceInfo> {
+  if (source.kind === "merge") return inspectMerge(engine, source);
   if (source.kind === "file") {
     const columns = await describe(engine, readSql(source.format, source.path, source.options));
     const [meta] = await engine.query(metadataSql(source.format, source.path, source.options));
@@ -194,7 +268,7 @@ async function writePackage(
 /** Builds a package schema from a file source with the extension's routing pragma. */
 async function fileToPackageSchema(
   engine: Engine,
-  source: Extract<Source, { kind: "file" }>,
+  source: FileSource,
   schema: string,
 ): Promise<void> {
   await resetSchema(engine, schema);
@@ -222,7 +296,7 @@ async function fileToPackageSchema(
  * CRS and appearance, which `metadata_from` reads back. An OBJ has no CRS: it comes
  * from `obj_metadata` with the caller's CRS (its materials travel on their own).
  */
-function sourceMetadata(source: Extract<Source, { kind: "file" }>): Record<string, string> {
+function sourceMetadata(source: FileSource): Record<string, string> {
   if (source.format !== "obj") return { metadata_from: source.path };
   if (!source.options?.crs) return {};
   return {
@@ -273,10 +347,128 @@ async function copyAndCollect(
   return [...written];
 }
 
+/** Refuses an id that more than one input holds: a merge expects each object once. */
+async function checkUniqueIds(engine: Engine, sources: FileSource[]): Promise<void> {
+  const ids = sources
+    .map((s) => `SELECT id FROM ${readSql(s.format, s.path, s.options)}`)
+    .join(" UNION ALL ");
+  const rows = await engine.query(
+    `SELECT id FROM (${ids}) GROUP BY id HAVING count(*) > 1 ORDER BY id LIMIT 5`,
+  );
+  if (rows.length > 0) {
+    const list = rows.map((r) => String(r.id)).join(", ");
+    throw new Error(
+      `Duplicate ${rows.length > 1 ? "ids" : "id"} across the inputs (${list}${rows.length === 5 ? ", …" : ""}): ` +
+        "a merge expects each object in exactly one input.",
+    );
+  }
+}
+
+/**
+ * Refuses materials and textures in a merge: their cells index each file's own
+ * appearance list, so rows from different files cannot share one output's list.
+ */
+async function checkNoAppearance(
+  engine: Engine,
+  inputs: SourceInfo[],
+  selection: Selection,
+): Promise<void> {
+  for (const input of inputs) {
+    const source = input.source as FileSource;
+    const columns = selectColumns(input.schema, selection).filter((c) =>
+      /^(material|texture)_lod/.test(c),
+    );
+    if (columns.length === 0) continue;
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM ${readSql(source.format, source.path, source.options)} ` +
+        `WHERE ${columns.map((c) => `${quoteIdent(c)} IS NOT NULL`).join(" OR ")}`,
+    );
+    if (Number(row?.n ?? 0) > 0) {
+      throw new Error(
+        `${source.path} has materials or textures. Merging inputs with appearances is not ` +
+          "supported yet: their ids are per file. Convert the inputs one by one instead.",
+      );
+    }
+  }
+}
+
+/** Adds one more file source to a package schema built by fileToPackageSchema. */
+async function insertIntoPackage(
+  engine: Engine,
+  source: FileSource,
+  schema: string,
+): Promise<void> {
+  const insertPragma = FORMATS[source.format].insertPragma;
+  if (insertPragma) {
+    await engine.exec(
+      `PRAGMA ${insertPragma}(${quoteLiteral(schema)}, ${quoteLiteral(source.path)}, create_tables = true)`,
+    );
+    return;
+  }
+  await engine.exec(
+    `INSERT INTO ${table(schema, "building")} BY NAME SELECT * FROM ${readSql(source.format, source.path, source.options)}`,
+  );
+}
+
+async function convertMerge(
+  engine: Engine,
+  req: ConvertRequest,
+  source: Extract<Source, { kind: "merge" }>,
+): Promise<string[]> {
+  const { info, target, selection, output } = req;
+  if (!info.inputs) throw new Error("Inspect a merge before converting it.");
+  await checkUniqueIds(engine, source.sources);
+  await checkNoAppearance(engine, info.inputs, selection);
+
+  if (isFileFormat(target)) {
+    // One relation over every input, by column name: a column one input lacks is NULL.
+    const relation = info.inputs
+      .map((input) => {
+        const s = input.source as FileSource;
+        return selectSql(
+          selectColumns(input.schema, selection),
+          readSql(s.format, s.path, s.options),
+        );
+      })
+      .join(" UNION ALL BY NAME ");
+    // No metadata_from: one input's extent and title would misdescribe the whole.
+    return copyAndCollect(
+      engine,
+      target,
+      output,
+      copySql({
+        relation,
+        to: output,
+        format: target,
+        options: {
+          ...(info.crs ? { crs: crsToUri(info.crs) } : {}),
+          ...targetOptions(target, selection),
+        },
+      }),
+    );
+  }
+
+  const [first, ...rest] = source.sources;
+  await fileToPackageSchema(engine, first!, WORK_SCHEMA);
+  for (const s of rest) await insertIntoPackage(engine, s, WORK_SCHEMA);
+  await pruneTables(engine, WORK_SCHEMA, await objectTables(engine, WORK_SCHEMA), selection);
+  const formats = new Set(source.sources.map((s) => s.format));
+  const files = await writePackage(
+    engine,
+    WORK_SCHEMA,
+    output,
+    info.crs,
+    formats.size === 1 ? first!.format : undefined,
+  );
+  await resetSchema(engine, WORK_SCHEMA);
+  return files;
+}
+
 /** Runs the conversion; returns the paths of the files it wrote. */
 export async function convert(engine: Engine, req: ConvertRequest): Promise<string[]> {
   const { info, target, selection, output } = req;
   const { source } = info;
+  if (source.kind === "merge") return convertMerge(engine, req, source);
 
   if (isFileFormat(target)) {
     if (source.kind === "file") {

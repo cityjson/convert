@@ -2,7 +2,14 @@
 // input or output, 2 a usage error.
 import { statSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { FORMATS, FORMAT_IDS, crsToAuthCode, type FormatId } from "@cityjson/cjconv-core";
+import {
+  FORMATS,
+  FORMAT_IDS,
+  crsToAuthCode,
+  sourceFormat,
+  type FormatId,
+  type SourceInfo,
+} from "@cityjson/cjconv-core";
 import { version } from "../package.json";
 import { convertFile, inspectFile } from "./api";
 
@@ -17,8 +24,11 @@ const processIo: Io = {
 };
 
 const USAGE = `Usage:
-  cjconv <input> <output> [options]   convert a 3D city model
-  cjconv info <input> [--json]        show its format, CRS, LoDs and attributes
+  cjconv <input>... <output> [options]   convert a 3D city model
+  cjconv info <input>... [--json]        show its format, CRS, LoDs and attributes
+
+Several inputs are files of one dataset, combined into the one output (the last
+argument). Ids must be unique across them, and they must share a CRS and column types.
 
 Formats: ${FORMAT_IDS.join(", ")}.
 The output format comes from the output name (.city.json, .city.jsonl, .fcb, .obj);
@@ -40,6 +50,13 @@ Options:
 `;
 
 class UsageError extends Error {}
+
+/** "CityJSONSeq", or for a merge "2 inputs (CityJSONSeq)". */
+function label(info: SourceInfo): string {
+  const fmt = sourceFormat(info.source);
+  const name = fmt ? FORMATS[fmt].label : "mixed formats";
+  return info.source.kind === "merge" ? `${info.source.sources.length} inputs (${name})` : name;
+}
 
 const list = (text: string | undefined) =>
   text === undefined
@@ -113,16 +130,17 @@ export async function main(argv: string[], io: Io = processIo): Promise<number> 
     };
 
     if (positionals[0] === "info") {
-      if (positionals.length !== 2) throw new UsageError("info takes one input.");
-      const info = await inspectFile(positionals[1]!, source);
-      const fmt =
-        info.source.kind === "package" ? "cityparquet" : (info.source.format satisfies FormatId);
+      const inputs = positionals.slice(1);
+      if (inputs.length === 0) throw new UsageError("info takes an input.");
+      const info = await inspectFile(inputs, source);
+      const fmt = sourceFormat(info.source);
       const crs = info.crs ? crsToAuthCode(info.crs) : null;
       if (o.json) {
         io.stdout(
           `${JSON.stringify(
             {
-              format: fmt,
+              format: fmt ?? "mixed",
+              ...(inputs.length > 1 ? { inputs } : {}),
               crs,
               objects: info.objects ?? null,
               lods: info.schema.lods,
@@ -138,8 +156,8 @@ export async function main(argv: string[], io: Io = processIo): Promise<number> 
       const attrs = info.schema.attributes.map((a) => a.name);
       io.stdout(
         [
-          positionals[1],
-          `  format      ${FORMATS[fmt].label}`,
+          inputs.length > 1 ? `${inputs.length} inputs: ${inputs.join(", ")}` : inputs[0],
+          `  format      ${label(info)}`,
           `  CRS         ${crs ?? "none"}`,
           `  objects     ${info.objects ?? "unknown"}`,
           `  LoDs        ${info.schema.lods.join(", ") || "none"}`,
@@ -151,27 +169,26 @@ export async function main(argv: string[], io: Io = processIo): Promise<number> 
       return 0;
     }
 
-    if (positionals.length !== 2) {
+    if (positionals.length < 2) {
       throw new UsageError(
         positionals.length === 0
           ? "Give an input and an output."
-          : "Give exactly one input and one output.",
+          : "Give an output after the input.",
       );
     }
-    const [input, output] = positionals as [string, string];
+    const inputs = positionals.slice(0, -1);
+    const output = positionals.at(-1)!;
     const result = await convertFile({
       ...source,
-      input,
+      input: inputs,
       output,
       to: format(o.to, "--to"),
       lods: list(o.lod),
       attributes: o["no-attributes"] ? [] : list(o.attributes),
       force: o.force,
     });
-    const from =
-      result.source.source.kind === "package" ? "cityparquet" : result.source.source.format;
     io.stdout(
-      `${FORMATS[from].label} → ${FORMATS[result.target].label}\n` +
+      `${label(result.source)} → ${FORMATS[result.target].label}\n` +
         result.files.map((f) => `  wrote ${f} (${bytes(f)})\n`).join(""),
     );
     return 0;

@@ -41,6 +41,7 @@ describe("inspect", () => {
     expect(info.schema.attributes.map((a) => a.name)).toContain("status");
     expect(info.schema.attributes.map((a) => a.name)).not.toContain("feature_id");
     expect(info.crs).toEqual({ authority: "EPSG", code: "7415" });
+    expect(info.objects).toBe(OBJECTS);
   });
 });
 
@@ -156,6 +157,7 @@ describe("CityParquet packages", () => {
     expect(info.schema.lods).toEqual(["2.2"]);
     expect(info.schema.attributes.map((a) => a.name)).toEqual(["status"]);
     expect(info.crs).toEqual({ authority: "EPSG", code: "7415" });
+    expect(info.objects).toBe(OBJECTS);
   });
 
   it("package → CityJSONSeq carries rows and CRS", async () => {

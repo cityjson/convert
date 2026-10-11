@@ -32,12 +32,17 @@ jobs:
         run: vp run check:lockstep
 
       - name: Install Chromium for the browser smoke test
+        working-directory: apps/web
         run: vp exec playwright install --with-deps chromium
 
-      # Unit tests, integration tests against the native cityjson extension, and the
-      # duckdb-wasm smoke test in headless Chromium.
+      # core unit tests; cjconv integration and CLI tests against the native cityjson
+      # extension; the web app's duckdb-wasm smoke test in headless Chromium.
       - name: Test
         run: vp test
 
+      # vp pack for both npm packages, vp build for the website.
       - name: Build
-        run: vp build
+        run: vp run -r build
+
+      - name: The packed CLI runs
+        run: node packages/cjconv/dist/cli.mjs info fixtures/delft_subset.city.jsonl

@@ -1,6 +1,6 @@
 # CLI: proposal
 
-> Status: **approved** (2026-10-11).
+> Status: **built** (2026-10-11).
 
 The command line does what the web app does — convert between CityJSON, CityJSONSeq,
 FlatCityBuf, CityParquet packages and OBJ, choosing LoDs and attributes — with the same

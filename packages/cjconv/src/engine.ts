@@ -40,9 +40,15 @@ export async function createNodeEngine(options: NodeEngineOptions = {}): Promise
     );
   }
 
+  // Rows as plain JSON, as core's Engine contract (and the web engine) has them: BIGINT
+  // as number, STRUCT/LIST as objects/arrays. getRowObjectsJson would give BIGINT as text.
   const query = async (sql: string): Promise<Row[]> => {
     const reader = await conn.runAndReadAll(sql);
-    return reader.getRowObjectsJson() as Row[];
+    return JSON.parse(
+      JSON.stringify(reader.getRowObjectsJS(), (_, v: unknown) =>
+        typeof v === "bigint" ? Number(v) : v,
+      ),
+    ) as Row[];
   };
 
   return {

@@ -38,6 +38,8 @@ export interface SourceInfo {
   crs?: Crs;
   /** Object tables of a package source (e.g. ["building"]); empty for files. */
   tables: string[];
+  /** CityObjects in the source, when the metadata or the tables say. */
+  objects?: number;
 }
 
 export interface ConvertRequest {
@@ -114,6 +116,15 @@ async function unionColumns(engine: Engine, schema: string, tables: string[]): P
   return [...seen.values()];
 }
 
+async function countRows(engine: Engine, schema: string, tables: string[]): Promise<number> {
+  let n = 0;
+  for (const t of tables) {
+    const [row] = await engine.query(`SELECT count(*) AS n FROM ${table(schema, t)}`);
+    n += Number(row?.n ?? 0);
+  }
+  return n;
+}
+
 export async function inspect(engine: Engine, source: Source): Promise<SourceInfo> {
   if (source.kind === "file") {
     const columns = await describe(engine, readSql(source.format, source.path, source.options));
@@ -125,6 +136,7 @@ export async function inspect(engine: Engine, source: Source): Promise<SourceInf
         meta?.reference_system as Parameters<typeof crsFromReferenceSystem>[0],
       ),
       tables: [],
+      objects: meta?.city_objects_count == null ? undefined : Number(meta.city_objects_count),
     };
   }
   const tables = await readPackage(engine, source.dir, INSPECT_SCHEMA);
@@ -133,6 +145,7 @@ export async function inspect(engine: Engine, source: Source): Promise<SourceInf
     schema: analyzeColumns(await unionColumns(engine, INSPECT_SCHEMA, tables)),
     crs: await packageCrs(engine, INSPECT_SCHEMA),
     tables,
+    objects: await countRows(engine, INSPECT_SCHEMA, tables),
   };
   await resetSchema(engine, INSPECT_SCHEMA);
   return info;
@@ -226,20 +239,38 @@ function targetOptions(target: FileFormatId, selection: Selection): Record<strin
   return { lod: highest };
 }
 
-/** The files a COPY wrote: just `output`, or everything in its directory for OBJ. */
-async function writtenFiles(
+/** The files in the directory a path lives in ("" for the working directory). */
+async function listDirectory(engine: Engine, path: string): Promise<string[]> {
+  const slash = path.lastIndexOf("/");
+  const pattern = slash < 0 ? "*" : `${path.slice(0, slash)}/*`;
+  const rows = await engine.query(`SELECT file FROM glob(${quoteLiteral(pattern)})`);
+  return rows.map((r) => String(r.file));
+}
+
+/**
+ * Runs a COPY and returns the files it wrote. A multi-file target (OBJ) writes sidecars
+ * beside `output` -- its .mtl and texture images, named by the data -- so the directory
+ * is listed before and after: the result is `output`, its `.mtl` and whatever appeared,
+ * never what was already there.
+ */
+async function copyAndCollect(
   engine: Engine,
   target: FileFormatId,
   output: string,
+  copy: string,
 ): Promise<string[]> {
-  if (!FORMATS[target].multiFile) return [output];
-  const slash = output.lastIndexOf("/");
-  if (slash < 0)
-    throw new Error(`${FORMATS[target].label} output needs a directory of its own: ${output}`);
-  const rows = await engine.query(
-    `SELECT file FROM glob(${quoteLiteral(`${output.slice(0, slash)}/*`)}) ORDER BY file`,
-  );
-  return rows.map((r) => String(r.file));
+  if (!FORMATS[target].multiFile) {
+    await engine.exec(copy);
+    return [output];
+  }
+  const before = new Set(await listDirectory(engine, output));
+  await engine.exec(copy);
+  const mtl = output.replace(/\.[^./]*$/, "") + ".mtl";
+  const written = new Set([output, mtl]);
+  for (const file of await listDirectory(engine, output)) {
+    if (!before.has(file)) written.add(file);
+  }
+  return [...written];
 }
 
 /** Runs the conversion; returns the paths of the files it wrote. */
@@ -249,7 +280,10 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
 
   if (isFileFormat(target)) {
     if (source.kind === "file") {
-      await engine.exec(
+      return copyAndCollect(
+        engine,
+        target,
+        output,
         copySql({
           columns: selectColumns(info.schema, selection),
           from: readSql(source.format, source.path, source.options),
@@ -258,7 +292,6 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
           options: { ...sourceMetadata(source), ...targetOptions(target, selection) },
         }),
       );
-      return writtenFiles(engine, target, output);
     }
     // Package → file: one relation over every module table, by column name.
     const tables = await readPackage(engine, source.dir, WORK_SCHEMA);
@@ -267,7 +300,10 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
       const schema = analyzeColumns(await describe(engine, table(WORK_SCHEMA, t)));
       parts.push(selectSql(selectColumns(schema, selection), table(WORK_SCHEMA, t)));
     }
-    await engine.exec(
+    const files = await copyAndCollect(
+      engine,
+      target,
+      output,
       copySql({
         relation: parts.join(" UNION ALL BY NAME "),
         to: output,
@@ -279,7 +315,7 @@ export async function convert(engine: Engine, req: ConvertRequest): Promise<stri
       }),
     );
     await resetSchema(engine, WORK_SCHEMA);
-    return writtenFiles(engine, target, output);
+    return files;
   }
 
   // Target is a package.

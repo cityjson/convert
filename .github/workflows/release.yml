@@ -26,7 +26,11 @@ jobs:
         id: npm
         working-directory: ${{ runner.temp }}
         run: |
-          version="$(npm view @cityjson/cjconv version)"
+          if ! version="$(npm view @cityjson/cjconv version 2> /dev/null)"; then
+            echo "Nothing is published on npm yet (a dry run publishes nothing); no release to make." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           core="$(npm view @cityjson/cjconv-core version)"
           if [ "$version" != "$core" ]; then
             echo "::error::@cityjson/cjconv is $version but @cityjson/cjconv-core is $core; they are published together."
@@ -36,6 +40,7 @@ jobs:
 
       - name: Already released?
         id: existing
+        if: steps.npm.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.npm.outputs.version }}
@@ -49,14 +54,14 @@ jobs:
           fi
 
       - name: Fetch the published tarballs
-        if: steps.existing.outputs.skip != 'true'
+        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
         working-directory: ${{ runner.temp }}
         env:
           VERSION: ${{ steps.npm.outputs.version }}
         run: npm pack "@cityjson/cjconv-core@${VERSION}" "@cityjson/cjconv@${VERSION}"
 
       - name: Create the release
-        if: steps.existing.outputs.skip != 'true'
+        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.npm.outputs.version }}

@@ -99,8 +99,9 @@ apps/web/        private                  the website, unchanged in behaviour
   `--extension` loads a local build instead.
 - **Builds.** `vp pack` (tsdown) builds ESM + `.d.ts` for both packages. The web app
   keeps `vp build`.
-- **CI.** Unchanged steps, run across the workspace. A future `release.yml` publishes
-  the two packages on a version tag.
+- **CI.** Unchanged steps, run across the workspace. Releases: the manually run
+  **Publish to npm** workflow bumps, publishes and tags both packages; the **release**
+  workflow then creates the GitHub release.
 
 ## Known gaps
 

@@ -35,6 +35,12 @@ vp run -r build                                   # pack the npm packages, build
 Design and architecture: [docs/idea.md](docs/idea.md) and [docs/cli.md](docs/cli.md).
 Working conventions: [CLAUDE.md](CLAUDE.md).
 
+## Releases
+
+The npm packages are published by the **Publish to npm** workflow (run it from `main`,
+choosing a patch, minor or major bump). The **release** workflow then creates the
+matching GitHub release.
+
 ## Branches
 
 - `develop`: day-to-day work, push freely. CI runs on every push.

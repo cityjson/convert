@@ -1,6 +1,6 @@
 {
   "name": "@cityjson/cjconv-core",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Engine-agnostic core of cjconv: detects 3D city model formats and builds the SQL the cityjson DuckDB extension converts them with.",
   "keywords": [
     "3d-city-model",

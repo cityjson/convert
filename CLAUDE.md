@@ -107,3 +107,14 @@ not import React, DuckDB or Node APIs**; lint enforces it. In the repo, web and 
   the real extension through `@duckdb/node-api`.
 - Run `vp check && vp test` before claiming work is done.
 - Keep the UI minimal: one screen, three steps. Don't add features the flow doesn't need.
+
+## Releasing to npm
+
+`@cityjson/cjconv-core` and `@cityjson/cjconv` share one version, set only by the
+**Publish to npm** workflow (`.github/workflows/publish.yml`), run by hand from `main`
+with a `patch` / `minor` / `major` bump (and an optional dry run). It tests the packages,
+bumps both versions (`scripts/bump-version.mjs`), publishes with provenance, pushes a
+`release: vX.Y.Z` commit and `vX.Y.Z` tag to `main`, and merges that commit back into
+`develop`. When it succeeds, the **release** workflow creates the GitHub release for the
+latest npm version, with both tarballs attached. Don't edit the package versions by hand.
+Needs the `NPM_TOKEN` repository secret and the `@cityjson` npm org.

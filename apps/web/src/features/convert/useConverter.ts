@@ -5,14 +5,19 @@ import type { ReadOptions } from "@cityjson/cjconv-core";
 import type { BrowserEngine } from "@/engine/duckdb";
 import {
   collectOutput,
+  combineInputs,
   outputPath,
-  prepareInput,
+  prepareInputs,
+  withInputNames,
   type Download,
   type InputSelection,
   type PreparedInput,
 } from "./io";
 
-/** `inspecting`: re-reading a loaded source with new read options (OBJ LoD / CRS). */
+/**
+ * `inspecting`: re-reading the loaded source after a change to it -- a file added or
+ * removed, or new read options (OBJ LoD / CRS).
+ */
 export type Phase = "idle" | "loading" | "inspecting" | "ready" | "converting" | "done";
 
 export interface ConverterState {
@@ -20,6 +25,9 @@ export interface ConverterState {
   /** What is happening right now, for the busy indicator. */
   status?: string;
   error?: string;
+  /** Which step the error belongs to, so it is shown there. */
+  errorAt?: "source" | "convert";
+  /** What is converted: one input, or several combined (its `parts`). */
   input?: PreparedInput;
   info?: SourceInfo;
   target: FormatId;
@@ -55,6 +63,9 @@ function defaultTarget(source: FormatId): FormatId {
   return source === "cityjsonseq" ? "cityjson" : "cityjsonseq";
 }
 
+/** The inputs a source is made of: its parts when combined, else itself. */
+const partsOf = (input: PreparedInput) => input.parts ?? [input];
+
 const INITIAL: ConverterState = { phase: "idle", target: "cityjsonseq", lods: [], attributes: [] };
 
 export function useConverter() {
@@ -81,7 +92,7 @@ export function useConverter() {
         ...s,
         status: selection.kind === "url" ? "Downloading…" : "Reading file…",
       }));
-      const input = await prepareInput(engine, selection);
+      const input = combineInputs(await prepareInputs(engine, selection));
       setState((s) => ({ ...s, status: "Inspecting…" }));
       const info = await inspect(engine, input.source);
       setState({
@@ -94,9 +105,93 @@ export function useConverter() {
       });
     } catch (e) {
       if (looksFatal(e)) await discardEngine();
-      setState({ ...INITIAL, error: message(e) });
+      setState({ ...INITIAL, error: message(e), errorAt: "source" });
     }
   }, []);
+
+  /** Re-inspects a changed set of inputs; `added` is dropped again if they don't combine. */
+  const resource = useCallback(
+    async (parts: PreparedInput[], added: PreparedInput[], status: string) => {
+      setState((s) => ({ ...s, phase: "inspecting", status, error: undefined, result: undefined }));
+      const engine = await getEngine();
+      let input: PreparedInput | undefined;
+      try {
+        input = combineInputs(parts);
+        const info = await inspect(engine, input.source);
+        setState((s) => ({
+          ...s,
+          phase: "ready",
+          status: undefined,
+          input,
+          info,
+          lods: info.schema.lods,
+          attributes: info.schema.attributes.map((a) => a.name),
+        }));
+      } catch (e) {
+        await engine.dropFiles(added.flatMap((i) => i.registered));
+        setState((s) => ({
+          ...s,
+          phase: "ready",
+          status: undefined,
+          error: withInputNames(message(e), input),
+          errorAt: "source",
+        }));
+      }
+    },
+    [],
+  );
+
+  /**
+   * Adds files or a URL to what is loaded: from then on they are combined into one
+   * output. Refused (and not added) when they cannot be combined with what is there.
+   */
+  const add = useCallback(
+    async (selection: InputSelection) => {
+      const { input } = stateRef.current;
+      if (!input) return load(selection);
+      setState((s) => ({
+        ...s,
+        phase: "inspecting",
+        status: selection.kind === "url" ? "Downloading…" : "Reading file…",
+        error: undefined,
+        result: undefined,
+      }));
+      let added: PreparedInput[];
+      try {
+        added = await prepareInputs(await getEngine(), selection);
+      } catch (e) {
+        setState((s) => ({
+          ...s,
+          phase: "ready",
+          status: undefined,
+          error: message(e),
+          errorAt: "source",
+        }));
+        return;
+      }
+      await resource([...partsOf(input), ...added], added, "Inspecting…");
+    },
+    [load, resource],
+  );
+
+  /** Removes one of several combined inputs. */
+  const remove = useCallback(
+    async (index: number) => {
+      const { input } = stateRef.current;
+      if (!input) return;
+      const parts = partsOf(input);
+      const gone = parts[index];
+      if (!gone) return;
+      const rest = parts.filter((_, i) => i !== index);
+      await (await getEngine()).dropFiles(gone.registered);
+      if (rest.length === 0) {
+        setState(INITIAL);
+        return;
+      }
+      await resource(rest, [], "Inspecting…");
+    },
+    [resource],
+  );
 
   const run = useCallback(async () => {
     const { input, info, target, lods, attributes } = stateRef.current;
@@ -134,7 +229,13 @@ export function useConverter() {
         });
         return;
       }
-      setState((s) => ({ ...s, phase: "ready", status: undefined, error: message(e) }));
+      setState((s) => ({
+        ...s,
+        phase: "ready",
+        status: undefined,
+        error: withInputNames(message(e), input),
+        errorAt: "convert",
+      }));
     }
   }, []);
 
@@ -174,7 +275,13 @@ export function useConverter() {
         attributes: info.schema.attributes.map((a) => a.name),
       }));
     } catch (e) {
-      setState((s) => ({ ...s, phase: "ready", status: undefined, error: message(e) }));
+      setState((s) => ({
+        ...s,
+        phase: "ready",
+        status: undefined,
+        error: message(e),
+        errorAt: "source",
+      }));
     }
   }, []);
 
@@ -184,5 +291,5 @@ export function useConverter() {
     if (input) await (await getEngine()).dropFiles(input.registered);
   }, []);
 
-  return { state, load, run, update, setSourceOptions, reset, formats: FORMAT_IDS };
+  return { state, load, add, remove, run, update, setSourceOptions, reset, formats: FORMAT_IDS };
 }

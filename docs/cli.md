@@ -42,13 +42,17 @@ inputs are meant to be pieces of the same dataset, so anything that would need a
 is refused before writing:
 
 - an id in more than one input;
-- a column whose type differs between inputs;
+- a column whose values differ in kind between inputs (e.g. text in one, numbers in
+  another). Types the reader merely inferred differently are reconciled: numbers of
+  different widths take the widest, and text whose every value reads as the other
+  input's type takes that type;
 - inputs in different CRSs (nothing is reprojected);
 - materials or textures in more than one input (their ids are per file).
 
 A column that only some inputs have is fine: the other rows get NULL. Inputs are files;
 a CityParquet package directory can't be one of several inputs. The website does the
-same when several CityJSON, CityJSONSeq or FlatCityBuf files are dropped at once.
+same: drop several CityJSON, CityJSONSeq or FlatCityBuf files at once, or add more files
+or URLs after the first, and remove any of them again.
 
 | Option                                    | Meaning                                                                                            |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |

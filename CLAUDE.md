@@ -93,8 +93,10 @@ not import React, DuckDB or Node APIs**; lint enforces it. In the repo, web and 
   Bugs 1–4 are fixed in the vendored build, and `tests/browser/engine.test.ts` guards each
   one. Fix future extension bugs upstream; don't work around them in this repo.
 - **Merges refuse, never guess.** Several inputs (`Source` kind `merge`) are combined only
-  when ids are unique across them, shared columns have one type and the CRS is the same;
-  appearances across inputs are refused. A missing column is NULL, never an error.
+  when ids are unique across them, the CRS is the same and shared columns hold the same
+  kind of values (inference differences are reconciled: widest number; text that all
+  casts to the other type); appearances across inputs are refused. A missing column is
+  NULL, never an error.
 - **Free memory.** Drop virtual-FS files after download. A fatal wasm error discards the
   worker (`terminate()`), and the next action starts a fresh one.
 - **`registerFile` transfers the buffer** to the worker: measure or copy it first.

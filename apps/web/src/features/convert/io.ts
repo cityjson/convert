@@ -11,6 +11,7 @@ import {
   type FormatId,
   type ReadOptions,
   type Source,
+  sourceFormat,
 } from "@cityjson/cjconv-core";
 import type { BrowserEngine } from "@/engine/duckdb";
 
@@ -24,15 +25,18 @@ export interface PreparedInput {
   bytes: number;
   /** Virtual-FS paths to drop when the input is replaced. */
   registered: string[];
-  /** For a merge: the names of the files being combined. */
-  parts?: string[];
+  /** For a merge: the inputs being combined, in order. */
+  parts?: PreparedInput[];
 }
 
 export class InputError extends Error {}
 
 const INPUT_DIR = "input";
-const PACKAGE_DIR = `${INPUT_DIR}/package`;
-const OBJ_DIR = `${INPUT_DIR}/obj`;
+
+// Every registered input gets a directory of its own, so adding a second file can never
+// overwrite the first in the virtual file system.
+let nextSlot = 0;
+const newSlot = () => `${INPUT_DIR}/${nextSlot++}`;
 
 /**
  * An OBJ states no LoD or CRS. Its geometry is read as LoD 2.2 until the user says
@@ -73,9 +77,10 @@ async function registerObj(engine: BrowserEngine, files: NamedBytes[]): Promise<
   }
   const parts = [objs[0]!, ...files.filter((f) => isObjSidecar(f.name))];
   const bytes = parts.reduce((n, f) => n + f.bytes.byteLength, 0); // before registering detaches
+  const dir = newSlot();
   const registered: string[] = [];
   for (const f of parts) {
-    const path = `${OBJ_DIR}/${fileName(f.name)}`;
+    const path = `${dir}/${fileName(f.name)}`;
     await engine.registerFile(path, f.bytes);
     registered.push(path);
   }
@@ -85,39 +90,6 @@ async function registerObj(engine: BrowserEngine, files: NamedBytes[]): Promise<
     name: fileName(objs[0]!.name),
     bytes,
     registered,
-  };
-}
-
-/**
- * Several CityJSON / CityJSONSeq / FlatCityBuf files: tiles of one dataset, combined into
- * one output. Their checks (unique ids, one CRS, one schema) run when they are inspected.
- */
-async function registerMerge(engine: BrowserEngine, files: NamedBytes[]): Promise<PreparedInput> {
-  const sources: FileSource[] = [];
-  const registered: string[] = [];
-  let bytes = 0;
-  for (const [i, f] of files.entries()) {
-    const format = detectFormat(f.name, f.bytes.subarray(0, SNIFF_BYTES));
-    if (!format || format === "cityparquet" || format === "obj") {
-      throw new InputError(
-        `${fileName(f.name)} can't be combined with the other files: several files are merged ` +
-          "only when each is CityJSON, CityJSONSeq or FlatCityBuf.",
-      );
-    }
-    const path = `${INPUT_DIR}/merge/${i}${FORMATS[format].extension}`;
-    bytes += f.bytes.byteLength; // before registerFileBuffer detaches the buffer
-    await engine.registerFile(path, f.bytes);
-    sources.push({ kind: "file", format, path });
-    registered.push(path);
-  }
-  const formats = new Set(sources.map((s) => s.format));
-  return {
-    source: { kind: "merge", sources },
-    format: formats.size === 1 ? sources[0]!.format : "cityjsonseq",
-    name: `${baseName(files[0]!.name)}_merged`,
-    bytes,
-    registered,
-    parts: files.map((f) => fileName(f.name)),
   };
 }
 
@@ -134,14 +106,15 @@ async function registerPackage(
   }
   // Measure before registering: registerFileBuffer transfers (detaches) the buffer.
   const bytes = parts.reduce((n, f) => n + f.bytes.byteLength, 0);
+  const dir = newSlot();
   const registered: string[] = [];
   for (const f of parts) {
-    const path = `${PACKAGE_DIR}/${fileName(f.name)}`;
+    const path = `${dir}/${fileName(f.name)}`;
     await engine.registerFile(path, f.bytes);
     registered.push(path);
   }
   return {
-    source: { kind: "package", dir: PACKAGE_DIR },
+    source: { kind: "package", dir },
     format: "cityparquet",
     name,
     bytes,
@@ -172,7 +145,7 @@ async function registerSingle(
     // A zip holds either an OBJ with its sidecars, or a CityParquet package.
     return hasObj(files) ? registerObj(engine, files) : registerPackage(engine, files, name);
   }
-  const path = `${INPUT_DIR}/source${FORMATS[format].extension}`;
+  const path = `${newSlot()}/source${FORMATS[format].extension}`;
   const size = bytes.byteLength; // before registerFileBuffer detaches the buffer
   await engine.registerFile(path, bytes);
   return {
@@ -184,33 +157,99 @@ async function registerSingle(
   };
 }
 
-export async function prepareInput(
+/** Whether an input can be one of several combined into one output. */
+export const canCombine = (input: PreparedInput) =>
+  input.source.kind === "file" && input.format !== "obj";
+
+/**
+ * Registers what the user chose. Usually one input; several files that are each
+ * CityJSON, CityJSONSeq or FlatCityBuf are several inputs, for combineInputs.
+ */
+export async function prepareInputs(
   engine: BrowserEngine,
   input: InputSelection,
-): Promise<PreparedInput> {
+): Promise<PreparedInput[]> {
   if (input.kind === "url") {
     const { name, bytes } = await download(input.url);
-    return registerSingle(engine, name, bytes);
+    return [await registerSingle(engine, name, bytes)];
   }
   const { files } = input;
   if (files.length === 0) throw new InputError("Nothing to convert: no files were dropped.");
   if (files.length === 1) {
     const [file] = files;
-    return registerSingle(engine, file!.name, new Uint8Array(await file!.arrayBuffer()));
+    return [await registerSingle(engine, file!.name, new Uint8Array(await file!.arrayBuffer()))];
   }
-  // Several files: an OBJ with its .mtl and textures, or a CityParquet package folder.
+  // Several files: an OBJ with its .mtl and textures, a CityParquet package folder, or
+  // several files of one dataset.
   const loaded = await Promise.all(
     files.map(async (f) => ({
       name: f.webkitRelativePath || f.name,
       bytes: new Uint8Array(await f.arrayBuffer()),
     })),
   );
-  if (hasObj(loaded)) return registerObj(engine, loaded);
+  if (hasObj(loaded)) return [await registerObj(engine, loaded)];
   if (loaded.some((f) => f.name.toLowerCase().endsWith(".parquet"))) {
     const folder = files[0]!.webkitRelativePath.split("/")[0] || "package";
-    return registerPackage(engine, loaded, folder);
+    return [await registerPackage(engine, loaded, folder)];
   }
-  return registerMerge(engine, loaded);
+  const inputs: PreparedInput[] = [];
+  try {
+    for (const f of loaded) {
+      const one = await registerSingle(engine, fileName(f.name), f.bytes);
+      inputs.push(one);
+      if (!canCombine(one)) {
+        throw new InputError(
+          `${one.name} can't be combined with other files: only CityJSON, CityJSONSeq and ` +
+            "FlatCityBuf files are merged.",
+        );
+      }
+    }
+  } catch (e) {
+    await engine.dropFiles(inputs.flatMap((i) => i.registered));
+    throw e;
+  }
+  return inputs;
+}
+
+/**
+ * One input as itself; several combined into a merge (one output). Their checks --
+ * unique ids, one CRS, one schema -- run when the merge is inspected and converted.
+ */
+export function combineInputs(inputs: PreparedInput[]): PreparedInput {
+  if (inputs.length === 0) throw new InputError("Nothing to convert.");
+  if (inputs.length === 1) return inputs[0]!;
+  const sources: FileSource[] = [];
+  for (const input of inputs) {
+    if (!canCombine(input) || input.source.kind !== "file") {
+      throw new InputError(
+        `${input.name} can't be combined with other files: only CityJSON, CityJSONSeq and ` +
+          "FlatCityBuf files are merged.",
+      );
+    }
+    sources.push(input.source);
+  }
+  const source: Source = { kind: "merge", sources };
+  return {
+    source,
+    format: sourceFormat(source) ?? sources[0]!.format,
+    name: `${baseName(inputs[0]!.name)}_merged`,
+    bytes: inputs.reduce((n, i) => n + i.bytes, 0),
+    registered: inputs.flatMap((i) => i.registered),
+    parts: inputs,
+  };
+}
+
+/**
+ * An error message with the virtual-FS paths the core reports (`input/3/source.city.jsonl`)
+ * replaced by the names the user knows those inputs by.
+ */
+export function withInputNames(message: string, input: PreparedInput | undefined): string {
+  let out = message;
+  for (const part of input ? (input.parts ?? [input]) : []) {
+    const path = part.source.kind === "file" ? part.source.path : undefined;
+    if (path) out = out.replaceAll(path, part.name);
+  }
+  return out;
 }
 
 /**

@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { convert, inspect, type SourceInfo } from "@cityjson/cjconv-core";
 import { createBrowserEngine, type BrowserEngine } from "@/engine/duckdb";
+import { InputError, combineInputs, prepareInputs } from "@/features/convert/io";
 import fixture from "../../../../fixtures/delft_subset.city.jsonl?raw";
 import cubeMtl from "../../../../fixtures/cube.mtl?raw";
 import cubeObj from "../../../../fixtures/cube.obj?raw";
@@ -217,5 +218,49 @@ describe("several files of one dataset", () => {
         output: "twice.fcb",
       }),
     ).rejects.toThrow(/duplicate id/i);
+  });
+});
+
+describe("adding inputs one at a time (web)", () => {
+  const tile = (name: string, text: string) =>
+    new File([new TextEncoder().encode(text)], name, { type: "application/json" });
+
+  it("keeps every input in its own place, and combines two into one merge", async () => {
+    const [a] = await prepareInputs(engine, {
+      kind: "files",
+      files: [tile("a.city.jsonl", fixture)],
+    });
+    const [b] = await prepareInputs(engine, {
+      kind: "files",
+      files: [tile("b.city.jsonl", fixture)],
+    });
+    expect(a!.registered[0]).not.toBe(b!.registered[0]);
+
+    const both = combineInputs([a!, b!]);
+    expect(both.source.kind).toBe("merge");
+    expect(both.parts).toHaveLength(2);
+    expect(both.bytes).toBe(a!.bytes + b!.bytes);
+    // Both are the same tile, so the merge itself is refused at conversion.
+    const info = await inspect(engine, both.source);
+    await expect(
+      convert(engine, {
+        info,
+        target: "cityjsonseq",
+        selection: { lods: ["2.2"], attributes: [] },
+        output: "same_twice.city.jsonl",
+      }),
+    ).rejects.toThrow(/duplicate id/i);
+  });
+
+  it("refuses to combine an OBJ with other files", async () => {
+    const [seqInput] = await prepareInputs(engine, {
+      kind: "files",
+      files: [tile("c.city.jsonl", fixture)],
+    });
+    const [objInput] = await prepareInputs(engine, {
+      kind: "files",
+      files: [tile("cube.obj", cubeObj)],
+    });
+    expect(() => combineInputs([seqInput!, objInput!])).toThrow(InputError);
   });
 });

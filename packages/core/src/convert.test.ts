@@ -69,3 +69,66 @@ describe("convert to OBJ", () => {
     expect(files.sort()).toEqual(["delft.mtl", "delft.obj"]);
   });
 });
+
+describe("merging with hostile column types", () => {
+  // A crafted file can make a reader infer a nested type whose field names come from the
+  // file: such a type string must never be pasted into SQL.
+  const HOSTILE = `STRUCT("x" INTEGER) ; COPY (SELECT 1) TO '/tmp/pwned' --`;
+
+  function describingEngine(
+    types: Record<string, string>,
+    emptyIn: string[] = [],
+  ): Engine & { sql: string[] } {
+    const sql: string[] = [];
+    return {
+      sql,
+      async query(text: string): Promise<Row[]> {
+        sql.push(text);
+        if (text.startsWith("DESCRIBE")) {
+          const path = Object.keys(types).find((p) => text.includes(p))!;
+          return [
+            { column_name: "id", column_type: "VARCHAR" },
+            { column_name: "attr", column_type: types[path] },
+          ];
+        }
+        if (text.includes("count(")) return [{ n: emptyIn.some((p) => text.includes(p)) ? 0 : 1 }];
+        return [{}];
+      },
+      async exec(text: string): Promise<void> {
+        sql.push(text);
+      },
+    };
+  }
+
+  it("refuses the conflict instead of casting to a type it did not choose", async () => {
+    const engine = describingEngine({ "a.city.jsonl": "VARCHAR", "b.city.jsonl": HOSTILE });
+    const { inspect } = await import("./convert");
+    await expect(
+      inspect(engine, {
+        kind: "merge",
+        sources: [
+          { kind: "file", format: "cityjsonseq", path: "a.city.jsonl" },
+          { kind: "file", format: "cityjsonseq", path: "b.city.jsonl" },
+        ],
+      }),
+    ).rejects.toThrow(/do not share a schema/);
+    expect(engine.sql.some((s) => s.includes("pwned"))).toBe(false);
+  });
+
+  it("never adopts a hostile type, even when the other input's column is empty", async () => {
+    const engine = describingEngine({ "a.city.jsonl": "VARCHAR", "b.city.jsonl": HOSTILE }, [
+      "a.city.jsonl",
+    ]);
+    const { inspect } = await import("./convert");
+    await expect(
+      inspect(engine, {
+        kind: "merge",
+        sources: [
+          { kind: "file", format: "cityjsonseq", path: "a.city.jsonl" },
+          { kind: "file", format: "cityjsonseq", path: "b.city.jsonl" },
+        ],
+      }),
+    ).rejects.toThrow(/do not share a schema/);
+    expect(engine.sql.some((s) => s.includes("pwned"))).toBe(false);
+  });
+});

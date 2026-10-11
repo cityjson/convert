@@ -1,0 +1,102 @@
+name: Publish to npm
+
+# Publishes @cityjson/cjconv-core and @cityjson/cjconv, always at one shared version.
+# Run it from main (Actions → Publish to npm → Run workflow) and choose the bump. On
+# success the `release` workflow creates the matching GitHub release.
+#
+# Needs the repository secret NPM_TOKEN: an npm automation (or granular) token that may
+# publish under the @cityjson scope.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry-run:
+        description: Dry run (build, version and pack; publish and push nothing)
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the version commit and tag
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    # main is the release branch: it only moves by merging develop.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: voidzero-dev/setup-vp@v1.21.1
+        with:
+          node-version: "24"
+          cache: true
+
+      - name: Format, lint and type check
+        run: vp check
+
+      # The packages' own tests: core unit tests, cjconv integration and CLI tests.
+      - name: Test
+        run: vp test --project core --project cjconv
+
+      - name: Bump the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: echo "version=$(node scripts/bump-version.mjs "$BUMP")" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: vp run -r build
+
+      - name: npm authentication
+        if: ${{ !inputs.dry-run }}
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # pnpm publishes every public workspace package in dependency order (core first)
+      # and turns cjconv's `workspace:*` into the version just set.
+      - name: Publish v${{ steps.version.outputs.version }}
+        run: vp pm publish -r --access public --no-git-checks ${{ inputs.dry-run && '--dry-run' || '' }}
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Commit, tag and push the version
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: v${VERSION}"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          # main may have moved while this ran; replay the version commit on top.
+          git pull --rebase origin main
+          git tag -f -a "v${VERSION}" -m "v${VERSION}"
+          git push origin HEAD:main "v${VERSION}"
+          # Bring the version commit back to develop, so the branches do not drift.
+          git fetch origin develop
+          git checkout -B develop origin/develop
+          git merge --no-edit "v${VERSION}"
+          git push origin develop
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: v${VERSION} was built and packed, nothing was published or pushed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published @cityjson/cjconv-core@${VERSION} and @cityjson/cjconv@${VERSION}; tagged v${VERSION}." >> "$GITHUB_STEP_SUMMARY"
+          fi

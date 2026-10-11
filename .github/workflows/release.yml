@@ -1,0 +1,83 @@
+name: release
+
+# Creates the GitHub release for the latest version on npm, after "Publish to npm"
+# succeeds. Idempotent: a version that already has a release (e.g. after a dry run,
+# which publishes nothing) is skipped. Can also be run by hand to retry.
+on:
+  workflow_run:
+    workflows: ["Publish to npm"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      # npm commands run outside the repo: its devEngines pins pnpm, and npm refuses there.
+      - name: Latest version on npm
+        id: npm
+        working-directory: ${{ runner.temp }}
+        run: |
+          if ! version="$(npm view @cityjson/cjconv version 2> /dev/null)"; then
+            echo "Nothing is published on npm yet (a dry run publishes nothing); no release to make." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          core="$(npm view @cityjson/cjconv-core version)"
+          if [ "$version" != "$core" ]; then
+            echo "::error::@cityjson/cjconv is $version but @cityjson/cjconv-core is $core; they are published together."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Already released?
+        id: existing
+        if: steps.npm.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.npm.outputs.version }}
+        run: |
+          if gh release view "v${VERSION}" > /dev/null 2>&1; then
+            echo "v${VERSION} already has a release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif ! git rev-parse -q --verify "refs/tags/v${VERSION}" > /dev/null; then
+            echo "::error::npm has v${VERSION}, but the repository has no tag v${VERSION}."
+            exit 1
+          fi
+
+      - name: Fetch the published tarballs
+        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          VERSION: ${{ steps.npm.outputs.version }}
+        run: npm pack "@cityjson/cjconv-core@${VERSION}" "@cityjson/cjconv@${VERSION}"
+
+      - name: Create the release
+        if: steps.npm.outputs.skip != 'true' && steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.npm.outputs.version }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Published to npm:
+          - [\`@cityjson/cjconv@${VERSION}\`](https://www.npmjs.com/package/@cityjson/cjconv/v/${VERSION}) — the \`cjconv\` CLI and Node library
+          - [\`@cityjson/cjconv-core@${VERSION}\`](https://www.npmjs.com/package/@cityjson/cjconv-core/v/${VERSION})
+
+          \`\`\`sh
+          npm install -g @cityjson/cjconv@${VERSION}
+          \`\`\`
+          EOF
+          gh release create "v${VERSION}" \
+            --verify-tag \
+            --title "v${VERSION}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --generate-notes \
+            "$RUNNER_TEMP"/cityjson-cjconv-*.tgz

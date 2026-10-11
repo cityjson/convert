@@ -28,11 +28,12 @@ jobs:
         run: vp run check:lockstep
 
       - name: Build
+        working-directory: apps/web
         run: vp build
 
       - uses: actions/upload-pages-artifact@v5.0.0
         with:
-          path: dist
+          path: apps/web/dist
 
   deploy:
     needs: build

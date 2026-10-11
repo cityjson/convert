@@ -30,36 +30,40 @@ The extension's function reference is `docs/FUNCTIONS.md` in its repo. Read it b
 
 ```sh
 vp install                               # install deps (pnpm version is pinned via devEngines)
-vp exec playwright install chromium      # once, for the browser smoke test
-vp dev                                   # dev server → http://localhost:5173/convert/
-vp check                                 # format + lint + type check
-vp test                                  # node project (unit + integration) and browser project
+vp exec --filter @cityjson/cjconv-web playwright install chromium   # once, for the browser smoke test
+vp run dev                               # web dev server → http://localhost:5173/convert/
+vp check                                 # format + lint + type check, whole workspace
+vp test                                  # every project: core, cjconv (native), web (browser)
+vp test --project cjconv                 # one project
+vp run -r build                          # vp pack the packages, vp build the website
 vp run check:lockstep                    # duckdb-wasm ↔ vendored extension versions
-vp run vendor:ext [cityjson=<file>]      # re-download / replace vendored extension binaries
-vp build                                 # production build into dist/
+node packages/cjconv/dist/cli.mjs …      # the built CLI
 ```
 
 Use `vp`, not `npm`/`npx`: `devEngines` pins pnpm and npm refuses to run here.
 
 ## Architecture
 
+A pnpm workspace (see [docs/cli.md](docs/cli.md)):
+
 ```
-src/core/              pure TS: formats, detect, schema, sql, crs, Engine interface, convert (orchestrator)
-src/engine/            duckdb-wasm Engine + browser file I/O (register, read, drop, terminate)
-src/features/convert/  the single UI flow: Source → Options → Convert; io.ts turns drops/URLs into files
-src/components/ui/     shadcn components (add more with `vp dlx shadcn@<ver> add …`)
-src/styles/theme.css   CityJSON tokens → shadcn CSS variables
-public/duckdb-ext/     manifest.json + vendored extension binaries, pinned
-tests/integration/     core against native DuckDB (@duckdb/node-api) + cityjson
-tests/browser/         duckdb-wasm smoke test in headless Chromium
+packages/core/    @cityjson/cjconv-core  pure TS: formats, detect, schema, sql, crs, Engine
+                                         interface, inspect/convert. Unit tests. Published to npm.
+packages/cjconv/  @cityjson/cjconv       Node Engine (@duckdb/node-api), convertFile/inspectFile,
+                                         the `cjconv` CLI (src/main.ts; src/cli.ts is the bin).
+                                         Integration + CLI tests. Published to npm.
+apps/web/         private                the website: React + duckdb-wasm; src/engine is its
+                                         Engine; scripts/ + public/duckdb-ext are the vendoring.
+fixtures/         shared test data
 ```
 
-`Engine` (core) is SQL only: `query` and `exec`. Getting bytes in and out is the runtime
-adapter's job. URLs are fetched by the app and registered as buffers, not read by the extension.
+`Engine` (core) is SQL only: `query` and `exec`, returning plain-JSON rows (BIGINT as
+number). Getting bytes in and out is each runtime's job: the web app registers buffers
+(it fetches URLs itself); cjconv lets native DuckDB read paths and URLs directly.
 
-Dependency direction is one-way: `features → engine → core`. **`src/core` must not import
-React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a future CLI with a
-`@duckdb/node-api` Engine. Lint enforces the boundary.
+Dependency direction is one-way: `apps/web → core`, `cjconv → core`. **`packages/core` must
+not import React, DuckDB or Node APIs**; lint enforces it. In the repo, web and cjconv import
+`@cityjson/cjconv-core` from source (Vite alias + TS path); published, from its `dist`.
 
 ## Invariants
 
@@ -88,6 +92,9 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
 - **Known extension bugs in wasm** are in [docs/spike-findings.md](docs/spike-findings.md).
   Bugs 1–4 are fixed in the vendored build, and `tests/browser/engine.test.ts` guards each
   one. Fix future extension bugs upstream; don't work around them in this repo.
+- **Merges refuse, never guess.** Several inputs (`Source` kind `merge`) are combined only
+  when ids are unique across them, shared columns have one type and the CRS is the same;
+  appearances across inputs are refused. A missing column is NULL, never an error.
 - **Free memory.** Drop virtual-FS files after download. A fatal wasm error discards the
   worker (`terminate()`), and the next action starts a fresh one.
 - **`registerFile` transfers the buffer** to the worker: measure or copy it first.
@@ -100,3 +107,14 @@ React, DOM APIs or duckdb.** That keeps it unit-testable and reusable by a futur
   the real extension through `@duckdb/node-api`.
 - Run `vp check && vp test` before claiming work is done.
 - Keep the UI minimal: one screen, three steps. Don't add features the flow doesn't need.
+
+## Releasing to npm
+
+`@cityjson/cjconv-core` and `@cityjson/cjconv` share one version, set only by the
+**Publish to npm** workflow (`.github/workflows/publish.yml`), run by hand from `main`
+with a `patch` / `minor` / `major` bump (and an optional dry run). It tests the packages,
+bumps both versions (`scripts/bump-version.mjs`), publishes with provenance, pushes a
+`release: vX.Y.Z` commit and `vX.Y.Z` tag to `main`, and merges that commit back into
+`develop`. When it succeeds, the **release** workflow creates the GitHub release for the
+latest npm version, with both tarballs attached. Don't edit the package versions by hand.
+Needs the `NPM_TOKEN` repository secret and the `@cityjson` npm org.

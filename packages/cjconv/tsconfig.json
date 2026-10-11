@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@cityjson/cjconv-core": ["../core/src/index.ts"]
+    },
+    "resolveJsonModule": true
+  },
+  "include": ["src", "tests", "vite.config.ts"]
+}

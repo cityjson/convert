@@ -41,10 +41,13 @@ function ErrorAlert({ message }: { message?: string }) {
 }
 
 export function ConvertPage() {
-  const { state, load, run, update, setSourceOptions, reset } = useConverter();
+  const { state, load, add, remove, run, update, setSourceOptions, reset } = useConverter();
   const { phase, input, info } = state;
   const ready = !!input && !!info;
-  const busy = phase === "loading";
+  // Loading the first input shows in the drop zone; adding to it, in the source card.
+  const busy = ready ? phase === "inspecting" : phase === "loading";
+  const sourceError = !ready || state.errorAt === "source" ? state.error : undefined;
+  const convertError = ready && state.errorAt !== "source" ? state.error : undefined;
 
   return (
     <div className="space-y-8 rounded-md border bg-card p-5 shadow-card sm:p-8">
@@ -55,10 +58,12 @@ export function ConvertPage() {
           input={input}
           info={info}
           onSelect={load}
+          onAdd={add}
+          onRemove={remove}
           onClear={reset}
         />
-        {/* Load errors belong to the source; conversion errors to the convert step. */}
-        {!ready && <ErrorAlert message={state.error} />}
+        {/* Loading and adding errors belong to the source; conversion errors to step 3. */}
+        <ErrorAlert message={sourceError} />
       </Step>
 
       <Step n={2} title="Options" muted={!ready}>
@@ -78,7 +83,7 @@ export function ConvertPage() {
 
       <Step n={3} title="Convert" muted={!ready}>
         {ready && <ConvertStep state={state} onConvert={run} />}
-        {ready && <ErrorAlert message={state.error} />}
+        <ErrorAlert message={convertError} />
       </Step>
     </div>
   );

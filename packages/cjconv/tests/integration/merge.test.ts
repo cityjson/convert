@@ -40,6 +40,11 @@ beforeAll(async () => {
   await engine.exec(
     `COPY (SELECT * FROM ${read} WHERE feature_id NOT IN ${firstTen}) TO '${out("b-28992.city.jsonl")}' (FORMAT cityjsonseq, crs 'https://www.opengis.net/def/crs/EPSG/0/28992')`,
   );
+  // b whose b3_bouwlagen is BIGINT while a's is VARCHAR: what the reader infers from a
+  // sample of lines can differ between tiles of one dataset, with the same values.
+  await engine.exec(
+    `COPY (SELECT * REPLACE (TRY_CAST(b3_bouwlagen AS BIGINT) AS b3_bouwlagen) FROM ${read} WHERE feature_id NOT IN ${firstTen}) TO '${out("b-intfloors.city.jsonl")}' (FORMAT cityjsonseq, metadata_from '${FIXTURE}')`,
+  );
   // b whose `status` is a number: the same column name with another type.
   await engine.exec(
     `COPY (SELECT * REPLACE (42 AS status) FROM ${read} WHERE feature_id NOT IN ${firstTen}) TO '${out("b-intstatus.city.jsonl")}' (FORMAT cityjsonseq, metadata_from '${FIXTURE}')`,
@@ -115,6 +120,54 @@ describe("merging inputs", () => {
       await count(`SELECT count(*) FROM ${relation} WHERE status IS NOT NULL`),
     ).toBeGreaterThan(0);
     expect(await count(`SELECT count(*) FROM ${relation} WHERE status IS NULL`)).toBeGreaterThan(0);
+  });
+});
+
+describe("types inferred differently between inputs", () => {
+  const cols = async (relation: string) =>
+    Object.fromEntries(
+      (await engine.query(`DESCRIBE SELECT * FROM ${relation}`)).map((r) => [
+        String(r.column_name),
+        String(r.column_type),
+      ]),
+    );
+
+  it("merges text that holds numbers with the numbers, as numbers", async () => {
+    const a = await cols(`read_cityjsonseq('${out("a.city.jsonl")}')`);
+    const b = await cols(`read_cityjsonseq('${out("b-intfloors.city.jsonl")}')`);
+    expect(a.b3_bouwlagen).toBe("VARCHAR");
+    expect(b.b3_bouwlagen).toBe("BIGINT");
+
+    const info = await inspect(engine, {
+      kind: "merge",
+      sources: [seq(out("a.city.jsonl")), seq(out("b-intfloors.city.jsonl"))],
+    });
+    expect(info.schema.attributes.find((c) => c.name === "b3_bouwlagen")?.type).toBe("BIGINT");
+    await convert(engine, {
+      info,
+      target: "cityjsonseq",
+      selection: { lods: ["2.2"], attributes: ["b3_bouwlagen"] },
+      output: out("floors.city.jsonl"),
+    });
+    const relation = `read_cityjsonseq('${out("floors.city.jsonl")}')`;
+    expect(await count(`SELECT count(*) FROM ${relation}`)).toBe(OBJECTS);
+    expect(await count(`SELECT count(b3_bouwlagen) FROM ${relation}`)).toBeGreaterThan(0);
+  });
+
+  it("does the same for a CityParquet package", async () => {
+    const info = await inspect(engine, {
+      kind: "merge",
+      sources: [seq(out("a.city.jsonl")), seq(out("b-intfloors.city.jsonl"))],
+    });
+    await convert(engine, {
+      info,
+      target: "cityparquet",
+      selection: { lods: ["2.2"], attributes: ["b3_bouwlagen"] },
+      output: out("floors_pkg"),
+    });
+    const relation = `read_parquet('${out("floors_pkg/building.parquet")}')`;
+    expect(await count(`SELECT count(*) FROM ${relation}`)).toBe(OBJECTS);
+    expect((await cols(relation)).b3_bouwlagen).toBe("BIGINT");
   });
 });
 

@@ -46,6 +46,11 @@ export interface SourceInfo {
   objects?: number;
   /** For a merge: each input's own info, in input order. */
   inputs?: SourceInfo[];
+  /**
+   * For a merge: the type a column takes where the inputs inferred different ones
+   * (column name → type). Each input is cast to it.
+   */
+  mergeTypes?: Record<string, string>;
 }
 
 export interface ConvertRequest {
@@ -150,10 +155,78 @@ const sourcePath = (info: SourceInfo) =>
       ? info.source.dir
       : "";
 
+/** Integer and floating-point types, narrowest first: a merge takes the widest. */
+const NUMERIC = [
+  "TINYINT",
+  "UTINYINT",
+  "SMALLINT",
+  "USMALLINT",
+  "INTEGER",
+  "UINTEGER",
+  "BIGINT",
+  "UBIGINT",
+  "HUGEINT",
+  "FLOAT",
+  "DOUBLE",
+];
+
+const relationOf = (info: SourceInfo) => {
+  const s = info.source as FileSource;
+  return readSql(s.format, s.path, s.options);
+};
+
+/**
+ * The one type for a column the inputs inferred differently. Readers infer attribute
+ * types from a sample of lines, so tiles of one dataset can disagree with the same kind
+ * of values. Inputs holding no value in the column take any type; numbers of different
+ * widths take the widest; text whose every value reads as the other input's type takes
+ * that type. Anything else is a real conflict, and refused.
+ */
+async function resolveType(
+  engine: Engine,
+  name: string,
+  entries: { input: SourceInfo; type: string }[],
+): Promise<string> {
+  const column = quoteIdent(name);
+  const live: typeof entries = [];
+  for (const e of entries) {
+    const [row] = await engine.query(`SELECT count(${column}) AS n FROM ${relationOf(e.input)}`);
+    if (Number(row?.n ?? 0) > 0) live.push(e);
+  }
+  const types = [...new Set(live.map((e) => e.type))];
+  if (types.length <= 1) return types[0] ?? entries[0]!.type;
+  if (types.every((t) => NUMERIC.includes(t))) {
+    return types.reduce((a, b) => (NUMERIC.indexOf(a) >= NUMERIC.indexOf(b) ? a : b));
+  }
+  const conflict = (a: (typeof entries)[number], b: (typeof entries)[number]) =>
+    new Error(
+      `Column "${name}" is ${a.type} in ${sourcePath(a.input)} but ${b.type} in ` +
+        `${sourcePath(b.input)}; the inputs do not share a schema.`,
+    );
+  const typed = types.filter((t) => t !== "VARCHAR");
+  if (typed.length !== 1 || !types.includes("VARCHAR")) {
+    throw conflict(
+      live.find((e) => e.type === types[0])!,
+      live.find((e) => e.type === types[1])!,
+    );
+  }
+  const target = typed[0]!;
+  const other = live.find((e) => e.type === target)!;
+  for (const e of live.filter((x) => x.type === "VARCHAR")) {
+    const [row] = await engine.query(
+      `SELECT count(*) AS n FROM ${relationOf(e.input)} ` +
+        `WHERE ${column} IS NOT NULL AND TRY_CAST(${column} AS ${target}) IS NULL`,
+    );
+    if (Number(row?.n ?? 0) > 0) throw conflict(e, other);
+  }
+  return target;
+}
+
 /**
  * Inspects each input of a merge and refuses what cannot be combined without guessing:
- * inputs in different CRSs (a merge does not reproject) and a column whose type differs
- * between inputs. A column only some inputs have is fine: the others fill it with NULL.
+ * inputs in different CRSs (a merge does not reproject) and a column whose values differ
+ * in kind between inputs (see resolveType). A column only some inputs have is fine: the
+ * others fill it with NULL.
  */
 async function inspectMerge(
   engine: Engine,
@@ -173,28 +246,35 @@ async function inspectMerge(
     }
   }
 
-  const seen = new Map<string, { column: Column; path: string }>();
+  // Every column, first occurrence first, with the inputs that have it and their types.
+  const byName = new Map<string, { input: SourceInfo; type: string }[]>();
   for (const input of inputs) {
     for (const column of input.schema.columns) {
-      const prior = seen.get(column.name);
-      if (!prior) seen.set(column.name, { column, path: sourcePath(input) });
-      else if (prior.column.type !== column.type) {
-        throw new Error(
-          `Column "${column.name}" is ${prior.column.type} in ${prior.path} but ` +
-            `${column.type} in ${sourcePath(input)}; the inputs do not share a schema.`,
-        );
-      }
+      const entries = byName.get(column.name) ?? [];
+      entries.push({ input, type: column.type });
+      byName.set(column.name, entries);
     }
+  }
+  const columns: Column[] = [];
+  const mergeTypes: Record<string, string> = {};
+  for (const [name, entries] of byName) {
+    let type = entries[0]!.type;
+    if (entries.some((e) => e.type !== type)) {
+      type = await resolveType(engine, name, entries);
+      mergeTypes[name] = type;
+    }
+    columns.push({ name, type });
   }
 
   const counts = inputs.map((i) => i.objects);
   return {
     source,
-    schema: analyzeColumns([...seen.values()].map((v) => v.column)),
+    schema: analyzeColumns(columns),
     crs: first.crs,
     tables: [],
     objects: counts.every((n) => n !== undefined) ? counts.reduce((a, b) => a + b, 0) : undefined,
     inputs,
+    mergeTypes,
   };
 }
 
@@ -421,14 +501,19 @@ async function convertMerge(
   await checkNoAppearance(engine, info.inputs, selection);
 
   if (isFileFormat(target)) {
-    // One relation over every input, by column name: a column one input lacks is NULL.
+    // One relation over every input, by column name: a column one input lacks is NULL,
+    // and a column the inputs typed differently is cast to the type the merge settled on.
+    const types = info.mergeTypes ?? {};
     const relation = info.inputs
       .map((input) => {
-        const s = input.source as FileSource;
-        return selectSql(
-          selectColumns(input.schema, selection),
-          readSql(s.format, s.path, s.options),
-        );
+        const own = new Map(input.schema.columns.map((c) => [c.name, c.type]));
+        const list = selectColumns(input.schema, selection).map((c) => {
+          const type = types[c];
+          return type && own.get(c) !== type
+            ? `CAST(${quoteIdent(c)} AS ${type}) AS ${quoteIdent(c)}`
+            : quoteIdent(c);
+        });
+        return `SELECT ${list.join(", ")} FROM ${relationOf(input)}`;
       })
       .join(" UNION ALL BY NAME ");
     // No metadata_from: one input's extent and title would misdescribe the whole.
@@ -451,7 +536,21 @@ async function convertMerge(
   const [first, ...rest] = source.sources;
   await fileToPackageSchema(engine, first!, WORK_SCHEMA);
   for (const s of rest) await insertIntoPackage(engine, s, WORK_SCHEMA);
-  await pruneTables(engine, WORK_SCHEMA, await objectTables(engine, WORK_SCHEMA), selection);
+  const tables = await objectTables(engine, WORK_SCHEMA);
+  // insert_* coerces an incoming column to the type already in the table; give each
+  // column the type the merge settled on instead.
+  for (const [name, type] of Object.entries(info.mergeTypes ?? {})) {
+    for (const t of tables) {
+      const has = (await describe(engine, table(WORK_SCHEMA, t))).find((c) => c.name === name);
+      if (has && has.type !== type) {
+        await engine.exec(
+          `ALTER TABLE ${table(WORK_SCHEMA, t)} ALTER COLUMN ${quoteIdent(name)} ` +
+            `SET DATA TYPE ${type} USING TRY_CAST(${quoteIdent(name)} AS ${type})`,
+        );
+      }
+    }
+  }
+  await pruneTables(engine, WORK_SCHEMA, tables, selection);
   const formats = new Set(source.sources.map((s) => s.format));
   const files = await writePackage(
     engine,

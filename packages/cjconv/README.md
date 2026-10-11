@@ -32,8 +32,8 @@ pass `--extension`. An OBJ states no LoD or CRS, so give them:
 `cjconv cube.obj cube.city.jsonl --obj-lod 2.2 --crs EPSG:7415`.
 
 Several inputs are pieces of one dataset, combined into the one output (the last
-argument). An id in more than one input, a column typed differently between inputs, or
-inputs in different CRSs are refused rather than guessed at.
+argument). An id in more than one input, a column holding different kinds of values
+between inputs, or inputs in different CRSs are refused rather than guessed at.
 
 ## Library
 

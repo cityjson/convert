@@ -3,7 +3,7 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import ehWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
-import type { Engine, Row } from "@/core/engine";
+import type { Engine, Row } from "@cityjson/cjconv-core";
 
 export interface BrowserEngine extends Engine {
   /** Makes bytes readable by SQL under `path`. The buffer is transferred to the worker. */

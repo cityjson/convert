@@ -2,11 +2,11 @@
 // binaries, and core's SQL. It is the test that catches a duckdb-wasm / extension
 // version mismatch, which only shows up when the extension is LOADed.
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
-import { convert, inspect, type SourceInfo } from "@/core/convert";
+import { convert, inspect, type SourceInfo } from "@cityjson/cjconv-core";
 import { createBrowserEngine, type BrowserEngine } from "@/engine/duckdb";
-import fixture from "../fixtures/delft_subset.city.jsonl?raw";
-import cubeMtl from "../fixtures/cube.mtl?raw";
-import cubeObj from "../fixtures/cube.obj?raw";
+import fixture from "../../../../fixtures/delft_subset.city.jsonl?raw";
+import cubeMtl from "../../../../fixtures/cube.mtl?raw";
+import cubeObj from "../../../../fixtures/cube.obj?raw";
 
 const OBJECTS = 40;
 const INPUT = "input/delft.city.jsonl";

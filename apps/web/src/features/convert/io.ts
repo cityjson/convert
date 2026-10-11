@@ -1,10 +1,10 @@
 // Turns what the user dropped or pasted into files DuckDB can read, and what the
 // extension wrote into one download.
 import { unzipSync, zipSync } from "fflate";
-import type { Source } from "@/core/convert";
-import { baseName, detectFormat, isObjSidecar, isPackagePath } from "@/core/detect";
-import { FORMATS, type FormatId } from "@/core/formats";
-import type { ReadOptions } from "@/core/sql";
+import type { Source } from "@cityjson/cjconv-core";
+import { baseName, detectFormat, isObjSidecar, isPackagePath } from "@cityjson/cjconv-core";
+import { FORMATS, type FormatId } from "@cityjson/cjconv-core";
+import type { ReadOptions } from "@cityjson/cjconv-core";
 import type { BrowserEngine } from "@/engine/duckdb";
 
 export type InputSelection = { kind: "files"; files: File[] } | { kind: "url"; url: string };

@@ -3,9 +3,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import type { SourceInfo } from "@/core/convert";
-import { FORMATS, FORMAT_IDS, type FormatId } from "@/core/formats";
-import type { ReadOptions } from "@/core/sql";
+import type { SourceInfo } from "@cityjson/cjconv-core";
+import { FORMATS, FORMAT_IDS, type FormatId } from "@cityjson/cjconv-core";
+import type { ReadOptions } from "@cityjson/cjconv-core";
 import { cn } from "@/lib/utils";
 import { FormatBadge } from "./FormatBadge";
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convert, inspect, type SourceInfo } from "@/core/convert";
-import { FORMAT_IDS, type FormatId } from "@/core/formats";
-import type { ReadOptions } from "@/core/sql";
+import { convert, inspect, type SourceInfo } from "@cityjson/cjconv-core";
+import { FORMAT_IDS, type FormatId } from "@cityjson/cjconv-core";
+import type { ReadOptions } from "@cityjson/cjconv-core";
 import type { BrowserEngine } from "@/engine/duckdb";
 import {
   collectOutput,

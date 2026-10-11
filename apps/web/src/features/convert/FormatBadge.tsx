@@ -1,4 +1,4 @@
-import type { FormatId } from "@/core/formats";
+import type { FormatId } from "@cityjson/cjconv-core";
 import { cn } from "@/lib/utils";
 
 // Each CityJSON-family format wears one ink of the CityJSON mark; OBJ, from outside the

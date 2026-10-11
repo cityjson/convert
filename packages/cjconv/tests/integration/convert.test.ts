@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
-import { convert, inspect, type SourceInfo } from "../../src/core/convert";
-import { createNodeEngine, type NodeEngine } from "../support/node-engine";
+import { convert, inspect, type SourceInfo } from "@cityjson/cjconv-core";
+import { createNodeEngine, type NodeEngine } from "../../src/engine";
 
-const FIXTURE = path.resolve(import.meta.dirname, "../fixtures/delft_subset.city.jsonl");
+const FIXTURE = path.resolve(import.meta.dirname, "../../../../fixtures/delft_subset.city.jsonl");
 const OBJECTS = 40; // 20 Buildings + 20 BuildingParts
 
 let engine: NodeEngine;
@@ -196,7 +196,7 @@ describe("CityParquet packages", () => {
 // a local build), and skip rather than fail until then. The browser smoke test covers
 // OBJ against the vendored build meanwhile.
 describe("OBJ", () => {
-  const CUBE = path.resolve(import.meta.dirname, "../fixtures/cube.obj");
+  const CUBE = path.resolve(import.meta.dirname, "../../../../fixtures/cube.obj");
   let available = false;
 
   beforeAll(async () => {

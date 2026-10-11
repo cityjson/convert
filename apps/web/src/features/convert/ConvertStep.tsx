@@ -1,6 +1,6 @@
 import { Download, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FORMATS, type FormatId } from "@/core/formats";
+import { FORMATS, type FormatId } from "@cityjson/cjconv-core";
 import type { ConverterState } from "./useConverter";
 
 interface Props {

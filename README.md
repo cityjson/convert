@@ -31,3 +31,7 @@ Design and architecture: [docs/idea.md](docs/idea.md). Working conventions:
 ## Data
 
 The test fixture is a subset of the [3DBAG](https://3dbag.nl) Delft tile (CC BY 4.0).
+
+## License
+
+[MIT](LICENSE). The vendored DuckDB extensions and duckdb-wasm carry their own (MIT) licenses.

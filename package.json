@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Convert between 3D city model formats in the browser, powered by the cityjson DuckDB extension.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vp dev",

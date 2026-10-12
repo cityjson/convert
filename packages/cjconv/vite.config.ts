@@ -18,7 +18,9 @@ export default defineConfig({
     name: "cjconv",
     include: ["tests/**/*.test.ts", "src/**/*.test.ts"],
     environment: "node",
-    // Installs the native cityjson extension on first run.
+    // Installs the native cityjson extension on first run, usually in a beforeAll, and
+    // several test files may do so at once on a cold CI cache.
     testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });

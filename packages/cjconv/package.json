@@ -1,6 +1,6 @@
 {
   "name": "@cityjson/cjconv",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Convert between 3D city model formats (CityJSON, CityJSONSeq, FlatCityBuf, CityParquet, OBJ) from the command line or Node, with the cityjson DuckDB extension.",
   "keywords": [
     "3d-city-model",

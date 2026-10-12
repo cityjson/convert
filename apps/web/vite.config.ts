@@ -7,8 +7,8 @@ import { playwright } from "vite-plus/test/browser-playwright";
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
-  // GitHub Pages project site: https://cityjson.github.io/convert/
-  base: "/convert/",
+  // GitHub Pages with the custom domain https://convert.cityjson.org, served from the root.
+  base: "/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

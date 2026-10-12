@@ -4,7 +4,7 @@ Convert 3D city models between **CityJSON**, **CityJSONSeq**, **FlatCityBuf**,
 **CityParquet** packages and **OBJ**, keeping only the levels of detail and attributes you
 need. A command line (`cjconv`) and a Node library, powered by the
 [`cityjson`](https://github.com/cityjson/duckdb-cityjson) DuckDB extension through
-`@duckdb/node-api`. A browser version lives at <https://cityjson.github.io/convert/>.
+`@duckdb/node-api`. A browser version lives at <https://convert.cityjson.org>.
 
 > Experimental: verify results before relying on them.
 

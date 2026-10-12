@@ -27,7 +27,7 @@ A pnpm workspace: `packages/core` (`@cityjson/cjconv-core`), `packages/cjconv`
 ```sh
 vp install
 vp exec --filter @cityjson/cjconv-web playwright install chromium   # once, for the browser smoke test
-vp run dev                                        # http://localhost:5173/convert/
+vp run dev                                        # http://localhost:5173/
 vp check && vp test                               # lint, types, unit, integration, CLI and browser tests
 vp run -r build                                   # pack the npm packages, build the website
 ```

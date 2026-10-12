@@ -189,7 +189,7 @@ Selection rules:
 | Toolchain  | Vite+ (`vp dev` · `vp build` · `vp test` · `vp check` = lint + fmt + types)                                                                                                                                                                                                                                                                                                                                |
 | Engine     | `@duckdb/duckdb-wasm` **pinned exactly** to `1.33.1-dev65.0` (DuckDB v1.5.6), eh bundle, served from our own build, loaded lazily on first use                                                                                                                                                                                                                                                             |
 | Extensions | `cityjson` and `parquet` `wasm_eh` builds for DuckDB v1.5.6, **vendored** under `public/duckdb-ext/v1.5.6/wasm_eh/` and loaded through `custom_extension_repository`. `parquet` is the official signed build. `cityjson` is self-built from duckdb-cityjson `e43c986` (wasm I/O fixes, OBJ writer), so it is unsigned until the community repository publishes it. See [spike-findings](spike-findings.md) |
-| Hosting    | GitHub Pages, `base: '/convert/'`                                                                                                                                                                                                                                                                                                                                                                          |
+| Hosting    | GitHub Pages, custom domain `convert.cityjson.org`, `base: '/'`                                                                                                                                                                                                                                                                                                                                            |
 
 **Version lockstep.** duckdb-wasm rejects any extension whose DuckDB version footer does not
 match its own. The duckdb-wasm npm pin and the vendored extension directory must always move
@@ -278,7 +278,7 @@ flowchart LR
         S["setup-vp<br/>pinned"] --> CH[vp check] --> T[vp test] --> L[lockstep check] --> B[vp build]
     end
     subgraph deploy["deploy.yml — push to main"]
-        B2["vp build<br/>base=/convert/"] --> UP[upload-pages-artifact] --> DP[deploy-pages]
+        B2["vp build<br/>base=/"] --> UP[upload-pages-artifact] --> DP[deploy-pages]
     end
 ```
 

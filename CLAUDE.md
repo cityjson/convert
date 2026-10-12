@@ -24,14 +24,14 @@ The extension's function reference is `docs/FUNCTIONS.md` in its repo. Read it b
 - React + TypeScript, shadcn/ui (Tailwind), themed with the CityJSON design system (light-only).
 - Vite+ (`vp`) is the single toolchain: dev server, build, Vitest, Oxlint, Oxfmt.
 - `@duckdb/duckdb-wasm`, eh bundle, single-threaded (GitHub Pages can't send COOP/COEP).
-- Deployed to GitHub Pages under `base: '/convert/'`.
+- Deployed to GitHub Pages at the custom domain https://convert.cityjson.org (`base: '/'`).
 
 ## Commands
 
 ```sh
 vp install                               # install deps (pnpm version is pinned via devEngines)
 vp exec --filter @cityjson/cjconv-web playwright install chromium   # once, for the browser smoke test
-vp run dev                               # web dev server → http://localhost:5173/convert/
+vp run dev                               # web dev server → http://localhost:5173/
 vp check                                 # format + lint + type check, whole workspace
 vp test                                  # every project: core, cjconv (native), web (browser)
 vp test --project cjconv                 # one project

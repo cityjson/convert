@@ -37,9 +37,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: voidzero-dev/setup-vp@v1.21.1
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
-          node-version: "24"
+          node-version: "26"
           cache: true
 
       - name: Format, lint and type check
